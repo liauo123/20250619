@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>開啟視訊鏡頭測試</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background-color: #f0f0f0;
+      padding: 50px;
+    }
+    video {
+      width: 90%;
+      max-width: 600px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    #status {
+      margin-top: 20px;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🎥 開啟視訊鏡頭</h1>
+  <video id="video" autoplay playsinline></video>
+  <div id="status">正在請求開啟鏡頭...</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const statusText = document.getElementById('status');
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        statusText.textContent = "✅ 鏡頭已啟動";
+      } catch (err) {
+        console.error("無法存取鏡頭：", err);
+        statusText.textContent = "❌ 無法開啟鏡頭，請確認權限已允許";
+      }
+    }
+
+    startCamera();
+  </script>
+
+</body>
+</html>
