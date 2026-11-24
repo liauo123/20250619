@@ -1,50 +1,636 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8">
-  <title>開啟視訊鏡頭測試</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      background-color: #f0f0f0;
-      padding: 50px;
-    }
-    video {
-      width: 90%;
-      max-width: 600px;
-      border-radius: 12px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    }
-    #status {
-      margin-top: 20px;
-      color: #333;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kahoot 互動搶答平台｜教師題庫管理</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --purple:#46178f;--purple-dark:#2f0e63;--blue:#1368ce;--green:#26890c;
+  --red:#e21b3c;--yellow:#d89e00;--ink:#1e293b;--muted:#64748b;
+  --line:#dbe4ee;--bg:#f3f5f9;--surface:#ffffff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--ink);min-height:100vh}
+header{background:var(--purple);color:#fff;padding:14px 20px;position:sticky;top:0;z-index:20;box-shadow:0 4px 16px rgba(47,14,99,.22)}
+.head{max-width:1200px;margin:auto;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.brandLogo{width:42px;height:42px;border-radius:12px;background:#fff;color:var(--purple);font-weight:1000;font-size:22px;display:grid;place-items:center}
+h1{margin:0;font-size:21px;letter-spacing:.03em}
+.sub{font-size:12px;opacity:.88}
+main{max-width:1200px;margin:auto;padding:20px 16px 48px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 6px 20px rgba(15,23,42,.05);margin-bottom:16px}
+.workspace{display:grid;gap:18px}
+@media(min-width:960px){.workspace{grid-template-columns:minmax(0,1.55fr) minmax(330px,.85fr);align-items:start}}
+input,select,textarea{width:100%;padding:11px 13px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink);outline:none;transition:.16s}
+input:focus,select:focus,textarea:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgba(70,23,143,.14)}
+button,.btnLink{border:0;border-radius:10px;padding:10px 15px;font-weight:800;font-size:14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:.15s}
+button:hover,.btnLink:hover{transform:translateY(-1px);filter:brightness(.97)}
+button:disabled{opacity:.55;cursor:not-allowed;transform:none}
+.btnPrimary{background:var(--purple);color:#fff}
+.btnGreen{background:var(--green);color:#fff}
+.btnBlue{background:var(--blue);color:#fff}
+.btnLight{background:#fff;color:var(--purple);border:1px solid #c4b5fd}
+.btnDanger{background:#fff1f2;color:var(--red);border:1px solid #fecdd3}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:130px}
+.status{padding:11px 13px;border-radius:10px;background:#f3e8ff;color:var(--purple);font-size:13px;font-weight:700;margin-top:10px;white-space:pre-wrap;line-height:1.5}
+.status.ok{background:#dcfce7;color:#166534}.status.err{background:#fee2e2;color:#991b1b}
+.hidden{display:none!important}
+
+/* 題目卡片 */
+.qCard{border:2px solid #e2e8f0;border-radius:14px;padding:16px;margin:14px 0;background:#fafbfe;position:relative}
+.qHead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.qNum{font-weight:900;color:var(--purple);font-size:16px}
+.qTools{display:flex;gap:6px}
+.qTools button{padding:6px 10px;font-size:12px}
+.qMetaRow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.imgDrop{border:2px dashed #cbd5e1;border-radius:12px;padding:12px;text-align:center;background:#fff;cursor:pointer;margin:8px 0;transition:.15s}
+.imgDrop:hover,.imgDrop.dragover{border-color:var(--purple);background:#f5f3ff}
+.imgPreviewWrap{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+.imgPreview{max-height:130px;max-width:220px;border-radius:10px;border:1px solid #cbd5e1;object-fit:contain}
+.optGrid{display:grid;grid-template-columns:1fr;gap:9px;margin-top:10px}
+@media(min-width:640px){.optGrid{grid-template-columns:1fr 1fr}}
+.optBox{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:11px;color:#fff;font-weight:800}
+.opt0{background:var(--red)}.opt1{background:var(--blue)}.opt2{background:var(--yellow)}.opt3{background:var(--green)}
+.optShape{font-size:18px;width:24px;text-align:center;flex:none}
+.optBox input[type="text"]{border:0;border-radius:8px;padding:9px 10px;font-size:14px;font-weight:700;color:var(--ink)}
+.optRadio{display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;background:rgba(0,0,0,.22);padding:6px 8px;border-radius:8px}
+.optRadio input{width:16px;height:16px;margin:0;accent-color:#fff;cursor:pointer}
+
+/* 題庫列表 */
+.quizItem{border:1px solid var(--line);border-radius:13px;padding:14px;margin-bottom:12px;background:#fff}
+.quizTitle{font-size:17px;font-weight:900;color:var(--ink);margin-bottom:4px}
+.quizMeta{font-size:12px;color:var(--muted);margin-bottom:10px}
+.quizActions{display:flex;gap:7px;flex-wrap:wrap}
+.quizActions button,.quizActions a{flex:1;min-width:85px;padding:8px 10px;font-size:13px}
+</style>
 </head>
 <body>
+<header>
+  <div class="head">
+    <div class="brand">
+      <div class="brandLogo">K!</div>
+      <div>
+        <h1>Kahoot 互動搶答平台</h1>
+        <div class="sub">教師題庫編輯器・即時大螢幕問答</div>
+      </div>
+    </div>
+    <div id="userBar" class="hidden" style="display:flex;align-items:center;gap:10px">
+      <span id="teacherEmail" style="font-size:13px;opacity:.9"></span>
+      <a class="btnLink btnLight" href="host.html" target="_blank" rel="noopener">開啟主持大螢幕</a>
+      <button id="logoutBtn" class="btnLight">登出</button>
+    </div>
+  </div>
+</header>
 
-  <h1>🎥 開啟視訊鏡頭</h1>
-  <video id="video" autoplay playsinline></video>
-  <div id="status">正在請求開啟鏡頭...</div>
+<main>
+  <!-- 教師登入區 -->
+  <section id="authCard" class="card" style="max-width:480px;margin:30px auto">
+    <h2 style="margin-top:0;color:var(--purple)">教師登入</h2>
+    <div style="display:grid;gap:10px">
+      <input id="emailInput" type="email" placeholder="教師 Email">
+      <input id="passwordInput" type="password" placeholder="密碼（至少 6 碼）">
+      <button id="loginBtn" class="btnPrimary" style="width:100%;padding:13px">登入題庫系統</button>
+    </div>
+    <div id="authStatus" class="status">請使用 Firebase Authentication 建立的教師帳號登入。</div>
+  </section>
 
-  <script>
-    const video = document.getElementById('video');
-    const statusText = document.getElementById('status');
+  <!-- 主工作區 -->
+  <div id="appArea" class="workspace hidden">
+    <!-- 左側：題庫編輯器 -->
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <h2 id="editorHeading" style="margin:0;color:var(--purple)">建立新題庫</h2>
+        <button id="newQuizBtn" class="btnLight" type="button">＋ 清空並建立新題庫</button>
+      </div>
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        statusText.textContent = "✅ 鏡頭已啟動";
-      } catch (err) {
-        console.error("無法存取鏡頭：", err);
-        statusText.textContent = "❌ 無法開啟鏡頭，請確認權限已允許";
-      }
+      <label style="font-size:13px;font-weight:800;color:var(--muted)">題庫名稱</label>
+      <input id="quizTitle" placeholder="例如：三年級自然科－認識植物隨堂搶答">
+
+      <div id="questionsContainer"></div>
+
+      <button id="addQuestionBtn" class="btnBlue" type="button" style="width:100%;padding:12px;margin-top:6px">＋ 新增一題選擇題</button>
+
+      <div class="row" style="margin-top:16px">
+        <button id="saveQuizBtn" class="btnGreen" type="button" style="padding:13px;font-size:16px">💾 儲存題庫到雲端</button>
+      </div>
+      <div id="editorStatus" class="status">編輯內容會自動暫存於本機瀏覽器，防止誤關分頁遺失。</div>
+    </section>
+
+    <!-- 右側：已儲存題庫列表 -->
+    <aside class="card">
+      <h2 style="margin-top:0;color:var(--purple)">我的雲端題庫</h2>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px">點擊「開始主持」將開啟大螢幕並產生房間 PIN 碼與 QR Code。</div>
+      <div id="quizList">
+        <div class="status">正在載入雲端題庫…</div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB42jwW5T_szUqIlvjw2_mGK2QKtDjyISk",
+  authDomain: "project-8175340549098107213.firebaseapp.com",
+  projectId: "project-8175340549098107213",
+  storageBucket: "project-8175340549098107213.firebasestorage.app",
+  messagingSenderId: "750702770422",
+  appId: "1:750702770422:web:99d24412a55a69033ed4d7",
+  measurementId: "G-NX1J2B4V1S"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+// 使用長輪詢，避免會緩衝串流回應的網路設備讓 Firestore 誤判離線。
+db.settings({ merge: true, experimentalAutoDetectLongPolling: false, experimentalForceLongPolling: true });
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const SHAPES = ["▲", "◆", "●", "■"];
+
+let currentUser = null;
+let editingQuizId = "";
+let questions = [];
+let quizzesUnsub = null;
+let draftTimer = null;
+let editorVersion = 0;
+
+function setStatus(id, msg, type = "") {
+  const el = $(id);
+  el.textContent = msg;
+  el.className = "status" + (type ? " " + type : "");
+}
+
+function createEmptyQuestion() {
+  return {
+    text: "",
+    imageBase64: "",
+    options: ["", "", "", ""],
+    correctIndex: 0,
+    timeLimit: 20,
+    pointsMode: "standard"
+  };
+}
+
+// 圖片前端壓縮為 JPEG Base64（無需開通 Firebase Storage，並控制文件大小）
+function compressImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith("image/")) {
+      reject(new Error("請選擇圖片檔案"));
+      return;
     }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("讀取圖片失敗"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("圖片解析失敗"));
+      img.onload = () => {
+        const maxSide = 540;
+        const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
-    startCamera();
-  </script>
+// 本機自動暫存草稿
+function draftKey() {
+  return currentUser ? "kahootEditorDraftV1:" + currentUser.uid : "";
+}
+function saveDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  if (!currentUser) return;
+  try {
+    localStorage.setItem(draftKey(), JSON.stringify({
+      editingQuizId,
+      title: $("quizTitle").value,
+      questions
+    }));
+  } catch {
+    setStatus("editorStatus", "瀏覽器暫存空間不足，請將題庫儲存到雲端。", "err");
+  }
+}
+function scheduleDraftSave() {
+  if (!currentUser) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraft, 250);
+}
+window.addEventListener("pagehide", () => { if (draftTimer) saveDraft(); });
 
+function validImage(value) {
+  return /^data:image\/jpeg;base64,[a-z0-9+/=]+$/i.test(value || "") ? value : "";
+}
+
+function normalizeQuestion(q) {
+  q ||= {};
+  const correct = Number(q.correctIndex);
+  return {
+    text: String(q.text || ""),
+    imageBase64: validImage(q.imageBase64),
+    options: Array.from({ length: 4 }, (_, index) => String(q.options?.[index] || "")),
+    correctIndex: Number.isInteger(correct) && correct >= 0 && correct <= 3 ? correct : 0,
+    timeLimit: [10, 15, 20, 30, 45, 60].includes(Number(q.timeLimit)) ? Number(q.timeLimit) : 20,
+    pointsMode: q.pointsMode === "double" ? "double" : "standard"
+  };
+}
+function restoreDraft() {
+  try {
+    const raw = localStorage.getItem(draftKey());
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.questions) || !data.questions.length) return false;
+    editingQuizId = data.editingQuizId || "";
+    $("quizTitle").value = data.title || "";
+    questions = data.questions.map(normalizeQuestion);
+    $("editorHeading").textContent = editingQuizId ? "編輯雲端題庫" : "建立新題庫";
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function renderQuestions() {
+  const container = $("questionsContainer");
+  container.innerHTML = questions.map((q, idx) => `
+    <div class="qCard" data-idx="${idx}">
+      <div class="qHead">
+        <span class="qNum">第 ${idx + 1} 題</span>
+        <div class="qTools">
+          <button type="button" class="btnLight" onclick="moveQuestion(${idx}, -1)" ${idx === 0 ? "disabled" : ""}>↑ 上移</button>
+          <button type="button" class="btnLight" onclick="moveQuestion(${idx}, 1)" ${idx === questions.length - 1 ? "disabled" : ""}>↓ 下移</button>
+          <button type="button" class="btnDanger" onclick="removeQuestion(${idx})" ${questions.length <= 1 ? "disabled" : ""}>刪除</button>
+        </div>
+      </div>
+
+      <input type="text" class="qTextInput" data-idx="${idx}" value="${esc(q.text)}" placeholder="輸入題目問題（例如：下列哪一種植物屬於蕨類？）">
+
+      <div class="imgDrop" data-idx="${idx}">
+        <input type="file" accept="image/*" class="qFileInput hidden" data-idx="${idx}">
+        ${q.imageBase64 ? `
+          <div class="imgPreviewWrap">
+            <img class="imgPreview" src="${esc(q.imageBase64)}" alt="題目插圖">
+            <div style="display:grid;gap:6px">
+              <button type="button" class="btnLight qPickImgBtn" data-idx="${idx}">更換圖片</button>
+              <button type="button" class="btnDanger qDelImgBtn" data-idx="${idx}">移除圖片</button>
+            </div>
+          </div>
+        ` : `<button type="button" class="btnLight qPickImgBtn" data-idx="${idx}">🖼️ 加入題目插圖（也可拖曳圖片到此）</button>`}
+      </div>
+
+      <div class="qMetaRow">
+        <div>
+          <label style="font-size:12px;color:var(--muted);font-weight:700">作答秒數</label>
+          <select class="qTimeSelect" data-idx="${idx}">
+            ${[10, 15, 20, 30, 45, 60].map(sec => `<option value="${sec}" ${Number(q.timeLimit) === sec ? "selected" : ""}>${sec} 秒</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);font-weight:700">計分倍率</label>
+          <select class="qPointsSelect" data-idx="${idx}">
+            <option value="standard" ${q.pointsMode !== "double" ? "selected" : ""}>標準分數（最高 1000 分）</option>
+            <option value="double" ${q.pointsMode === "double" ? "selected" : ""}>雙倍加分（最高 2000 分）</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="optGrid">
+        ${[0, 1, 2, 3].map(optIdx => `
+          <div class="optBox opt${optIdx}">
+            <span class="optShape">${SHAPES[optIdx]}</span>
+            <input type="text" class="qOptInput" data-idx="${idx}" data-opt="${optIdx}" value="${esc(q.options[optIdx] || "")}" placeholder="選項 ${optIdx + 1}">
+            <label class="optRadio" title="設為正確答案">
+              <input type="radio" name="correct_${idx}" class="qCorrectRadio" data-idx="${idx}" data-opt="${optIdx}" ${Number(q.correctIndex) === optIdx ? "checked" : ""}>
+              正解
+            </label>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+  bindQuestionEvents();
+}
+
+function bindQuestionEvents() {
+  document.querySelectorAll(".qTextInput").forEach(el => {
+    el.addEventListener("input", e => {
+      questions[e.target.dataset.idx].text = e.target.value;
+      scheduleDraftSave();
+    });
+  });
+  document.querySelectorAll(".qTimeSelect").forEach(el => {
+    el.addEventListener("change", e => {
+      questions[e.target.dataset.idx].timeLimit = Number(e.target.value);
+      scheduleDraftSave();
+    });
+  });
+  document.querySelectorAll(".qPointsSelect").forEach(el => {
+    el.addEventListener("change", e => {
+      questions[e.target.dataset.idx].pointsMode = e.target.value;
+      scheduleDraftSave();
+    });
+  });
+  document.querySelectorAll(".qOptInput").forEach(el => {
+    el.addEventListener("input", e => {
+      questions[e.target.dataset.idx].options[e.target.dataset.opt] = e.target.value;
+      scheduleDraftSave();
+    });
+  });
+  document.querySelectorAll(".qCorrectRadio").forEach(el => {
+    el.addEventListener("change", e => {
+      questions[e.target.dataset.idx].correctIndex = Number(e.target.dataset.opt);
+      scheduleDraftSave();
+    });
+  });
+  document.querySelectorAll(".qPickImgBtn").forEach(el => {
+    el.addEventListener("click", e => {
+      e.stopPropagation();
+      const idx = e.currentTarget.dataset.idx;
+      document.querySelector(`.qFileInput[data-idx="${idx}"]`).click();
+    });
+  });
+  document.querySelectorAll(".qDelImgBtn").forEach(el => {
+    el.addEventListener("click", e => {
+      e.stopPropagation();
+      const idx = e.currentTarget.dataset.idx;
+      questions[idx].imageBase64 = "";
+      renderQuestions();
+      scheduleDraftSave();
+    });
+  });
+  document.querySelectorAll(".qFileInput").forEach(el => {
+    el.addEventListener("change", async e => {
+      const question = questions[e.target.dataset.idx];
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        setStatus("editorStatus", "正在壓縮圖片…");
+        const image = await compressImageFile(file);
+        if (!questions.includes(question)) return;
+        question.imageBase64 = image;
+        renderQuestions();
+        scheduleDraftSave();
+        setStatus("editorStatus", "圖片已加入並壓縮完成。", "ok");
+      } catch (err) {
+        setStatus("editorStatus", err.message, "err");
+      }
+    });
+  });
+  document.querySelectorAll(".imgDrop").forEach(drop => {
+    drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("dragover"); });
+    drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+    drop.addEventListener("drop", async e => {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+      const question = questions[drop.dataset.idx];
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      try {
+        const image = await compressImageFile(file);
+        if (!questions.includes(question)) return;
+        question.imageBase64 = image;
+        renderQuestions();
+        scheduleDraftSave();
+      } catch (err) {
+        setStatus("editorStatus", err.message, "err");
+      }
+    });
+  });
+}
+
+window.moveQuestion = (idx, dir) => {
+  const target = idx + dir;
+  if (target < 0 || target >= questions.length) return;
+  [questions[idx], questions[target]] = [questions[target], questions[idx]];
+  renderQuestions();
+  scheduleDraftSave();
+};
+
+window.removeQuestion = idx => {
+  if (questions.length <= 1) return;
+  questions.splice(idx, 1);
+  renderQuestions();
+  scheduleDraftSave();
+};
+
+$("addQuestionBtn").onclick = () => {
+  questions.push(createEmptyQuestion());
+  renderQuestions();
+  scheduleDraftSave();
+};
+
+$("newQuizBtn").onclick = () => {
+  editorVersion++;
+  editingQuizId = "";
+  $("editorHeading").textContent = "建立新題庫";
+  $("quizTitle").value = "";
+  questions = [createEmptyQuestion()];
+  renderQuestions();
+  scheduleDraftSave();
+  setStatus("editorStatus", "已切換為新題庫編輯模式。");
+};
+
+$("quizTitle").addEventListener("input", scheduleDraftSave);
+
+// 儲存題庫至 Firestore
+$("saveQuizBtn").onclick = async () => {
+  if (!currentUser) return;
+  const user = currentUser;
+  const version = editorVersion;
+  const quizId = editingQuizId;
+  const title = $("quizTitle").value.trim();
+  if (!title) return setStatus("editorStatus", "請輸入題庫名稱。", "err");
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    if (!q.text.trim()) return setStatus("editorStatus", `第 ${i + 1} 題尚未輸入題目文字。`, "err");
+    if (q.options.some(opt => !String(opt || "").trim())) {
+      return setStatus("editorStatus", `第 ${i + 1} 題的四個選項都必須填寫完整。`, "err");
+    }
+  }
+
+  const payload = {
+    teacherId: currentUser.uid,
+    teacherEmail: currentUser.email || "",
+    title,
+    questionCount: questions.length,
+    questions: questions.map(q => ({
+      text: q.text.trim(),
+      imageBase64: q.imageBase64 || "",
+      options: q.options.map(o => o.trim()),
+      correctIndex: Number(q.correctIndex || 0),
+      timeLimit: Number(q.timeLimit || 20),
+      pointsMode: q.pointsMode === "double" ? "double" : "standard"
+    })),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  if (new TextEncoder().encode(JSON.stringify(payload)).length > 950000) {
+    return setStatus("editorStatus", "題庫太大，請減少圖片或拆成兩份再儲存。", "err");
+  }
+  $("saveQuizBtn").disabled = true;
+  setStatus("editorStatus", "正在儲存題庫到 Firebase…");
+
+  try {
+    if (quizId) {
+      await db.collection("quizzes").doc(quizId).update(payload);
+      if (currentUser !== user || editorVersion !== version) return;
+      setStatus("editorStatus", `題庫「${title}」已更新成功！`, "ok");
+    } else {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      const ref = await db.collection("quizzes").add(payload);
+      if (currentUser !== user || editorVersion !== version) return;
+      editingQuizId = ref.id;
+      $("editorHeading").textContent = "編輯雲端題庫";
+      setStatus("editorStatus", `新題庫「${title}」建立成功！現在可以點擊右側「開始主持」。`, "ok");
+    }
+    scheduleDraftSave();
+  } catch (e) {
+    if (currentUser === user && editorVersion === version) setStatus("editorStatus", "儲存失敗：\n" + (e.message || e), "err");
+  } finally {
+    $("saveQuizBtn").disabled = false;
+  }
+};
+
+// 監聽教師自己的題庫列表
+function listenMyQuizzes() {
+  if (quizzesUnsub) quizzesUnsub();
+  quizzesUnsub = db.collection("quizzes")
+    .where("teacherId", "==", currentUser.uid)
+    .onSnapshot({ includeMetadataChanges: true }, snap => {
+      const docs = [...snap.docs].sort((a, b) => {
+        const ta = a.data().updatedAt?.toMillis?.() || a.data().createdAt?.toMillis?.() || 0;
+        const tb = b.data().updatedAt?.toMillis?.() || b.data().createdAt?.toMillis?.() || 0;
+        return tb - ta;
+      });
+      if (!docs.length) {
+        $("quizList").textContent = snap.metadata.fromCache
+          ? "正在等待 Firestore 連線並讀取雲端題庫…"
+          : "尚未建立任何題庫，請在左側建立並儲存。";
+        return;
+      }
+      const cachedNotice = snap.metadata.fromCache
+        ? '<div class="status">目前顯示暫存題庫，待 Firestore 連線後可開房。</div>' : "";
+      $("quizList").innerHTML = cachedNotice + docs.map(doc => {
+        const d = doc.data();
+        const count = Array.isArray(d.questions) ? d.questions.length : 0;
+        return `
+          <div class="quizItem">
+            <div class="quizTitle">${esc(d.title || "未命名題庫")}</div>
+            <div class="quizMeta">共 ${count} 題</div>
+            <div class="quizActions">
+              <a class="btnLink btnGreen" href="host.html?quiz=${doc.id}" target="_blank" rel="noopener">▶ 開始主持</a>
+              <button type="button" class="btnLight" onclick="loadQuizToEditor('${doc.id}')">編輯</button>
+              <button type="button" class="btnLight" onclick="duplicateQuiz('${doc.id}')">複製</button>
+              <button type="button" class="btnDanger" onclick="deleteQuiz('${doc.id}')">刪除</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }, err => {
+      $("quizList").innerHTML = `<div class="status err">載入題庫失敗：${esc(err.message)}</div>`;
+    });
+}
+
+window.loadQuizToEditor = async id => {
+  const version = ++editorVersion;
+  try {
+    const snap = await db.collection("quizzes").doc(id).get();
+    if (!snap.exists || editorVersion !== version) return;
+    const d = snap.data();
+    editingQuizId = snap.id;
+    $("editorHeading").textContent = "編輯雲端題庫";
+    $("quizTitle").value = d.title || "";
+    questions = Array.isArray(d.questions) ? d.questions.map(normalizeQuestion) : [];
+    if (!questions.length) questions = [createEmptyQuestion()];
+    renderQuestions();
+    scheduleDraftSave();
+    setStatus("editorStatus", `已載入「${d.title}」，修改後請記得按「儲存題庫到雲端」。`, "ok");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (e) {
+    setStatus("editorStatus", "載入題庫失敗：" + e.message, "err");
+  }
+};
+
+window.duplicateQuiz = async id => {
+  try {
+    const snap = await db.collection("quizzes").doc(id).get();
+    if (!snap.exists) return;
+    const d = snap.data();
+    await db.collection("quizzes").add({
+      ...d,
+      title: (d.title || "未命名題庫") + " (副本)",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    setStatus("editorStatus", "已複製題庫。", "ok");
+  } catch (e) {
+    setStatus("editorStatus", "複製失敗：" + e.message, "err");
+  }
+};
+
+window.deleteQuiz = async id => {
+  if (!confirm("確定刪除此題庫？刪除後無法復原。")) return;
+  try {
+    await db.collection("quizzes").doc(id).delete();
+    if (editingQuizId === id) $("newQuizBtn").click();
+    setStatus("editorStatus", "題庫已刪除。", "ok");
+  } catch (e) {
+    setStatus("editorStatus", "刪除失敗：" + e.message, "err");
+  }
+};
+
+// 驗證狀態監聽
+auth.onAuthStateChanged(user => {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  editorVersion++;
+  currentUser = user && !user.isAnonymous ? user : null;
+  if (currentUser) {
+    $("authCard").classList.add("hidden");
+    $("appArea").classList.remove("hidden");
+    $("userBar").classList.remove("hidden");
+    $("teacherEmail").textContent = user.email || "";
+    if (!restoreDraft()) {
+      editingQuizId = "";
+      $("quizTitle").value = "";
+      $("editorHeading").textContent = "建立新題庫";
+      questions = [createEmptyQuestion()];
+    }
+    renderQuestions();
+    listenMyQuizzes();
+  } else {
+    $("authCard").classList.remove("hidden");
+    $("appArea").classList.add("hidden");
+    $("userBar").classList.add("hidden");
+    if (quizzesUnsub) { quizzesUnsub(); quizzesUnsub = null; }
+  }
+});
+
+$("loginBtn").onclick = async () => {
+  try {
+    await auth.signInWithEmailAndPassword($("emailInput").value.trim(), $("passwordInput").value);
+  } catch (e) {
+    setStatus("authStatus", "登入失敗：\n" + e.message, "err");
+  }
+};
+
+$("logoutBtn").onclick = () => {
+  saveDraft();
+  auth.signOut().catch(error => setStatus("editorStatus", "登出失敗：" + error.message, "err"));
+};
+</script>
 </body>
 </html>

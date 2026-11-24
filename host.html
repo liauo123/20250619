@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kahoot 互動搶答平台｜主持人投影大螢幕</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{
+  --purple:#46178f;--purple-dark:#25076b;--red:#e21b3c;--blue:#1368ce;
+  --yellow:#d89e00;--green:#26890c;--ink:#1e293b;--muted:#64748b;--bg:#f2f4f8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--ink);min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--purple-dark);color:#fff;padding:12px 22px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.pinBanner{display:flex;align-items:center;gap:12px}
+.pinTag{background:#fff;color:var(--purple-dark);padding:4px 12px;border-radius:999px;font-weight:1000;font-size:18px;letter-spacing:.08em}
+button{border:0;border-radius:11px;padding:11px 18px;font-weight:900;font-size:15px;cursor:pointer;transition:.15s}
+button:hover{transform:translateY(-1px);filter:brightness(.97)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btnPrimary{background:var(--purple);color:#fff}
+.btnGreen{background:var(--green);color:#fff}
+.btnBlue{background:var(--blue);color:#fff}
+.btnDanger{background:var(--red);color:#fff}
+.btnLight{background:#fff;color:var(--ink);border:1px solid #cbd5e1}
+.hidden{display:none!important}
+main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;display:flex;flex-direction:column}
+.card{background:#fff;border-radius:18px;padding:24px;box-shadow:0 10px 30px rgba(15,23,42,.08)}
+
+/* 等待室 Lobby */
+.lobbyGrid{display:grid;gap:24px;align-items:center}
+@media(min-width:860px){.lobbyGrid{grid-template-columns:360px 1fr}}
+.joinPanel{background:linear-gradient(145deg,#46178f,#25076b);color:#fff;border-radius:20px;padding:24px;text-align:center}
+.bigPin{font-size:clamp(42px,6vw,64px);font-weight:1000;letter-spacing:.12em;background:#fff;color:var(--purple-dark);border-radius:16px;padding:10px 16px;margin:12px 0}
+#qrBox{background:#fff;padding:14px;border-radius:16px;display:inline-block;margin:8px 0}
+.playerCloud{display:flex;flex-wrap:wrap;gap:12px;margin-top:16px;min-height:180px;align-content:flex-start}
+.playerChip{background:#fff;border:2px solid #cbd5e1;padding:10px 16px;border-radius:999px;font-weight:900;font-size:17px;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 10px rgba(0,0,0,.05);animation:popIn .25s ease}
+.playerChip.left{opacity:.45;border-style:dashed}
+.kickBtn{background:#fee2e2;color:var(--red);padding:2px 7px;border-radius:999px;font-size:12px;margin-left:4px}
+@keyframes popIn{from{transform:scale(.75);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* 出題與揭曉畫面 */
+.stageTop{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.qBadge{background:var(--purple);color:#fff;padding:8px 16px;border-radius:999px;font-weight:900;font-size:16px}
+.questionBox{background:#fff;border-radius:20px;padding:24px;text-align:center;box-shadow:0 8px 24px rgba(15,23,42,.07);margin-bottom:18px}
+.questionText{font-size:clamp(24px,3.6vw,38px);font-weight:1000;line-height:1.4;margin:0}
+.questionImg{max-height:240px;max-width:100%;border-radius:14px;margin-top:14px;object-fit:contain;border:1px solid #e2e8f0}
+.midHUD{display:flex;justify-content:space-between;align-items:center;margin:14px 0;gap:16px}
+.timerCircle{width:86px;height:86px;border-radius:50%;background:var(--purple);color:#fff;font-size:34px;font-weight:1000;display:grid;place-items:center;box-shadow:0 8px 20px rgba(70,23,143,.28);flex:none}
+.timerCircle.urgent{background:var(--red);animation:pulse .7s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+.ansCounter{background:#fff;padding:12px 22px;border-radius:16px;text-align:center;box-shadow:0 4px 14px rgba(15,23,42,.06)}
+.ansCounter b{display:block;font-size:32px;color:var(--purple)}
+
+/* 四色選項卡 */
+.optionsGrid{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:720px){.optionsGrid{grid-template-columns:1fr 1fr}}
+.optCard{border-radius:16px;padding:20px 22px;color:#fff;font-size:clamp(20px,2.5vw,28px);font-weight:900;display:flex;align-items:center;gap:14px;min-height:92px;box-shadow:0 6px 0 rgba(0,0,0,.18);transition:.25s}
+.opt0{background:var(--red)}.opt1{background:var(--blue)}.opt2{background:var(--yellow)}.opt3{background:var(--green)}
+.optCard.dimmed{opacity:.32;transform:scale(.98)}
+.optCard.correctGlow{box-shadow:0 0 0 6px #bbf7d0,0 10px 25px rgba(22,163,74,.4);transform:scale(1.02)}
+.optMark{margin-left:auto;font-size:30px}
+
+/* 統計長條圖 */
+.chartWrap{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;height:190px;align-items:end;background:#fff;padding:18px 24px 12px;border-radius:18px;margin-bottom:18px;box-shadow:0 6px 20px rgba(15,23,42,.06)}
+.barCol{display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:6px}
+.barCount{font-weight:1000;font-size:18px}
+.barFill{width:70%;max-width:90px;min-height:8px;border-radius:10px 10px 0 0;transition:height .5s ease}
+.barLabel{font-weight:900;font-size:16px}
+
+/* 排行榜與頒獎台 */
+.rankList{display:grid;gap:10px;max-width:780px;margin:16px auto}
+.rankRow{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-radius:14px;background:#fff;font-size:20px;font-weight:900;box-shadow:0 4px 12px rgba(15,23,42,.06)}
+.rank1{background:linear-gradient(90deg,#fef08a,#fde047);border:2px solid #eab308;font-size:24px}
+.rank2{background:linear-gradient(90deg,#f1f5f9,#e2e8f0);border:2px solid #94a3b8;font-size:22px}
+.rank3{background:linear-gradient(90deg,#ffedd5,#fed7aa);border:2px solid #f97316;font-size:21px}
+</style>
+</head>
+<body>
+<header>
+  <div class="pinBanner">
+    <strong style="font-size:18px">Kahoot 主持控制台</strong>
+    <span id="headerPin" class="pinTag hidden">PIN: ------</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="soundToggleBtn" class="btnLight" type="button">🔊 音效：開</button>
+    <button id="endRoomBtn" class="btnDanger hidden" type="button">結束並清除房間</button>
+  </div>
+</header>
+
+<main>
+  <!-- 登入或選擇題庫畫面 -->
+  <div id="gameStatus" class="hidden" role="status" style="background:#fff3cd;color:#713f12;padding:12px;border-radius:10px;margin-bottom:14px"></div>
+  <section id="setupView" class="card" style="max-width:680px;margin:20px auto;width:100%">
+    <div id="hostLoginBox" class="hidden">
+      <h2 style="margin-top:0;color:var(--purple)">教師登入以啟動主持端</h2>
+      <div style="display:grid;gap:10px">
+        <input id="hostEmail" type="email" placeholder="教師 Email" style="padding:12px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px">
+        <input id="hostPass" type="password" placeholder="密碼" style="padding:12px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px">
+        <button id="hostLoginBtn" class="btnPrimary">登入</button>
+      </div>
+    </div>
+    <div id="quizPickerBox" class="hidden">
+      <h2 style="margin-top:0;color:var(--purple)">選擇要主持的題庫</h2>
+      <div id="hostQuizList" style="display:grid;gap:10px"></div>
+    </div>
+    <button id="retrySetupBtn" type="button" class="btnPrimary hidden" style="margin-top:12px">重試連線</button>
+    <a id="backToEditor" class="hidden" href="index.html" style="display:inline-block;margin:12px 0 0 8px">返回題庫管理</a>
+    <div id="setupStatus" role="status" style="margin-top:12px;font-weight:700;color:var(--purple)">正在驗證身分…</div>
+  </section>
+
+  <!-- 1. 等待室 Lobby -->
+  <section id="lobbyView" class="hidden">
+    <div class="lobbyGrid">
+      <div class="joinPanel">
+        <div style="font-size:15px;opacity:.9">請學生開啟手機掃描 QR 或輸入房號</div>
+        <div id="lobbyPin" class="bigPin">------</div>
+        <div id="qrBox"></div>
+        <div id="joinUrlText" style="font-size:12px;word-break:break-all;background:rgba(255,255,255,.14);padding:8px;border-radius:8px;margin-top:8px"></div>
+        <button id="copyJoinUrlBtn" class="btnLight" style="width:100%;margin-top:10px">📋 複製學生加入網址</button>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 id="lobbyQuizTitle" style="margin:0;color:var(--purple)">題庫載入中</h2>
+            <div id="lobbyPlayerCount" style="font-size:16px;font-weight:800;color:var(--muted);margin-top:4px">目前等待人數：0 人</div>
+          </div>
+          <button id="startGameBtn" class="btnGreen" style="font-size:20px;padding:14px 28px" disabled>🚀 開始遊戲</button>
+        </div>
+        <div id="playerCloud" class="playerCloud"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 出題與揭曉答案畫面 -->
+  <section id="questionView" class="hidden">
+    <div class="stageTop">
+      <span id="qProgressBadge" class="qBadge">第 1 / 1 題</span>
+      <div style="display:flex;gap:10px">
+        <button id="revealNowBtn" class="btnBlue" type="button">⏹ 提前揭曉答案</button>
+        <button id="nextStepBtn" class="btnGreen hidden" type="button">📊 查看排行榜</button>
+      </div>
+    </div>
+
+    <div class="questionBox">
+      <p id="stageQuestionText" class="questionText"></p>
+      <img id="stageQuestionImg" class="questionImg hidden" alt="題目圖片">
+    </div>
+
+    <!-- 作答中計時與人數 -->
+    <div id="liveHud" class="midHUD">
+      <div id="timerCircle" class="timerCircle">20</div>
+      <div style="font-size:18px;font-weight:800;color:var(--muted)">請學生在手機上點擊對應顏色的幾何按鈕！</div>
+      <div class="ansCounter">
+        <b id="answeredCount">0 / 0</b>
+        <span style="font-size:13px;color:var(--muted)">已作答人數</span>
+      </div>
+    </div>
+
+    <!-- 揭曉答案長條圖 -->
+    <div id="revealChart" class="chartWrap hidden">
+      <div class="barCol">
+        <div id="barCount_0" class="barCount">0</div>
+        <div id="barFill_0" class="barFill opt0" style="height:0"></div>
+        <div class="barLabel">▲ 紅</div>
+      </div>
+      <div class="barCol">
+        <div id="barCount_1" class="barCount">0</div>
+        <div id="barFill_1" class="barFill opt1" style="height:0"></div>
+        <div class="barLabel">◆ 藍</div>
+      </div>
+      <div class="barCol">
+        <div id="barCount_2" class="barCount">0</div>
+        <div id="barFill_2" class="barFill opt2" style="height:0"></div>
+        <div class="barLabel">● 黃</div>
+      </div>
+      <div class="barCol">
+        <div id="barCount_3" class="barCount">0</div>
+        <div id="barFill_3" class="barFill opt3" style="height:0"></div>
+        <div class="barLabel">■ 綠</div>
+      </div>
+    </div>
+
+    <!-- 四色選項顯示 -->
+    <div class="optionsGrid">
+      <div id="optCard_0" class="optCard opt0">
+        <span aria-hidden="true">▲</span>
+        <span id="optText_0"></span><span id="optMark_0" class="optMark"></span>
+      </div>
+      <div id="optCard_1" class="optCard opt1">
+        <span aria-hidden="true">◆</span>
+        <span id="optText_1"></span><span id="optMark_1" class="optMark"></span>
+      </div>
+      <div id="optCard_2" class="optCard opt2">
+        <span aria-hidden="true">●</span>
+        <span id="optText_2"></span><span id="optMark_2" class="optMark"></span>
+      </div>
+      <div id="optCard_3" class="optCard opt3">
+        <span aria-hidden="true">■</span>
+        <span id="optText_3"></span><span id="optMark_3" class="optMark"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 排行榜與最終頒獎台 -->
+  <section id="leaderboardView" class="card hidden" style="text-align:center">
+    <h2 id="boardHeading" style="font-size:32px;color:var(--purple);margin-top:0">🏆 即時積分排行榜</h2>
+    <div id="rankList" class="rankList"></div>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:22px">
+      <button id="nextQuestionBtn" class="btnPrimary" style="font-size:18px;padding:14px 28px">▶ 下一題</button>
+      <button id="exportCsvBtn" class="btnGreen hidden" style="font-size:16px;padding:14px 22px">📥 匯出全班成績 CSV</button>
+      <button id="finishCleanupBtn" class="btnDanger hidden" style="font-size:16px;padding:14px 22px">🗑️ 結束並清除房間資料</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB42jwW5T_szUqIlvjw2_mGK2QKtDjyISk",
+  authDomain: "project-8175340549098107213.firebaseapp.com",
+  projectId: "project-8175340549098107213",
+  storageBucket: "project-8175340549098107213.firebasestorage.app",
+  messagingSenderId: "750702770422",
+  appId: "1:750702770422:web:99d24412a55a69033ed4d7",
+  measurementId: "G-NX1J2B4V1S"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+// 使用長輪詢，避免會緩衝串流回應的網路設備讓 Firestore 誤判離線。
+db.settings({ merge: true, experimentalAutoDetectLongPolling: false, experimentalForceLongPolling: true });
+const stamp = firebase.firestore.FieldValue.serverTimestamp;
+const $ = id => document.getElementById(id);
+
+let teacher;
+let roomRef;
+let room;
+let correctIndexes;
+let players = [];
+let answers = [];
+let watchedIndex = -1;
+let stopRoom;
+let stopPlayers;
+let stopAnswers;
+let countdown;
+let busy = false;
+let setupLoading = false;
+let playersReady = false;
+let answersReady = false;
+let lastSoundSecond = -1;
+let lastReveal = -1;
+let soundEnabled = true;
+let audio;
+
+function showView(id) {
+  for (const view of ["setupView", "lobbyView", "questionView", "leaderboardView"]) {
+    $(view).classList.toggle("hidden", view !== id);
+  }
+}
+
+function notice(message = "") {
+  $("gameStatus").textContent = message;
+  $("gameStatus").classList.toggle("hidden", !message);
+}
+
+function firestoreMessage(error) {
+  if (error.code === "unavailable" || error.code === "deadline-exceeded" || /client is offline/i.test(error.message || "")) {
+    return "暫時無法連到 Firestore。請確認網路後重試。";
+  }
+  if (error.code === "permission-denied") {
+    return "Firestore 拒絕存取。請確認教師帳號和本平台的 Firestore 規則。";
+  }
+  return error.message || String(error);
+}
+
+function unlockAudio() {
+  if (!soundEnabled) return;
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  try {
+    audio ||= new AudioContext();
+    audio.resume().catch(() => {});
+  } catch {}
+}
+
+function tone(frequency, duration) {
+  if (!soundEnabled || audio?.state !== "running") return;
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  const now = audio.currentTime;
+  oscillator.frequency.value = frequency;
+  gain.gain.setValueAtTime(0.15, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  oscillator.connect(gain).connect(audio.destination);
+  oscillator.start(now);
+  oscillator.stop(now + duration);
+}
+
+function setControls() {
+  $("startGameBtn").disabled = busy || !playersReady || !players.length;
+  for (const id of ["revealNowBtn", "nextStepBtn", "nextQuestionBtn", "exportCsvBtn", "endRoomBtn", "finishCleanupBtn"]) {
+    $(id).disabled = busy;
+  }
+}
+
+async function run(action) {
+  if (busy) return;
+  busy = true;
+  setControls();
+  notice();
+  let succeeded = false;
+  try {
+    await action();
+    succeeded = true;
+  } catch (error) {
+    notice(firestoreMessage(error));
+  } finally {
+    busy = false;
+    setControls();
+    if (succeeded && room?.status === "question") maybeReveal();
+  }
+  return succeeded;
+}
+
+async function createRoom(quizId) {
+  return run(async () => {
+    const quizSnapshot = await db.collection("quizzes").doc(quizId).get({ source: "server" });
+    const quiz = quizSnapshot.data();
+    if (!quiz || quiz.teacherId !== teacher.uid) throw new Error("找不到可主持的題庫。");
+    if (!Array.isArray(quiz.questions) || !quiz.questions.length) throw new Error("題庫至少需要一題。");
+
+    const keys = quiz.questions.map(q => Number(q.correctIndex));
+    if (keys.some(key => !Number.isInteger(key) || key < 0 || key > 3) ||
+        quiz.questions.some(q => !Array.isArray(q.options) || q.options.length !== 4 || !String(q.text || "").trim())) {
+      throw new Error("題庫含有不完整的題目或正解，請回題庫管理頁修正。");
+    }
+    const questions = quiz.questions.map(q => ({
+      text: q.text,
+      imageBase64: /^data:image\/jpeg;base64,[a-z0-9+/=]+$/i.test(q.imageBase64 || "") ? q.imageBase64 : "",
+      options: q.options,
+      timeLimit: Math.min(60, Math.max(5, Math.round(Number(q.timeLimit) || 20))),
+      pointsMode: q.pointsMode === "double" ? "double" : "standard"
+    }));
+    const data = {
+      teacherId: teacher.uid,
+      quizId,
+      title: quiz.title || "即時搶答",
+      questions,
+      status: "lobby",
+      currentIndex: 0,
+      revealedAnswer: -1
+    };
+    if (new TextEncoder().encode(JSON.stringify(data)).length > 950000) {
+      throw new Error("題庫太大，請減少圖片或把題庫分成兩份再開房。");
+    }
+
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const pin = String(100000 + Math.floor(Math.random() * 900000));
+      const ref = db.collection("rooms").doc(pin);
+      const created = await db.runTransaction(async transaction => {
+        if ((await transaction.get(ref)).exists) return false;
+        transaction.set(ref, { ...data, createdAt: stamp() });
+        transaction.set(ref.collection("private").doc("key"), { correctIndexes: keys });
+        return true;
+      });
+      if (created) {
+        const url = new URL(location.href);
+        url.searchParams.delete("quiz");
+        url.searchParams.set("room", pin);
+        history.replaceState(null, "", url);
+        attachRoom(ref, keys);
+        return;
+      }
+    }
+    throw new Error("暫時無法取得房號，請重試。");
+  });
+}
+
+function resetListeners() {
+  clearInterval(countdown);
+  stopRoom?.();
+  stopPlayers?.();
+  stopAnswers?.();
+  stopRoom = stopPlayers = stopAnswers = null;
+}
+
+function attachRoom(ref, keys) {
+  resetListeners();
+  roomRef = ref;
+  room = null;
+  renderedState = "";
+  correctIndexes = keys;
+  players = [];
+  playersReady = false;
+  watchedIndex = -1;
+  lastReveal = -1;
+  const url = new URL("play.html", location.href);
+  url.searchParams.set("pin", ref.id);
+  $("headerPin").textContent = "PIN: " + ref.id;
+  $("headerPin").classList.remove("hidden");
+  $("endRoomBtn").classList.remove("hidden");
+  $("lobbyPin").textContent = ref.id;
+  $("joinUrlText").textContent = url.href;
+  $("qrBox").replaceChildren();
+  if (typeof QRCode === "function") {
+    new QRCode($("qrBox"), { text: url.href, width: 210, height: 210, correctLevel: QRCode.CorrectLevel.M });
+  } else {
+    $("qrBox").textContent = "請使用下方學生加入網址。";
+  }
+
+  stopPlayers = ref.collection("players").onSnapshot({ includeMetadataChanges: true }, snapshot => {
+    playersReady = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
+    players = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    if (room?.status === "lobby") renderLobby();
+    if (room?.status === "question") {
+      updateAnsweredCount();
+      maybeReveal();
+    }
+  }, error => notice("讀取玩家失敗：" + error.message));
+
+  stopRoom = ref.onSnapshot({ includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
+    if (!snapshot.exists) {
+      location.replace("index.html");
+      return;
+    }
+    room = snapshot.data();
+    renderRoom();
+  }, error => notice("讀取房間失敗：" + error.message));
+}
+
+function renderLobby() {
+  $("lobbyQuizTitle").textContent = room.title + "（共 " + room.questions.length + " 題）";
+  $("lobbyPlayerCount").textContent = "目前等待人數：" + players.length + " 人";
+  const order = [...players].sort((a, b) => (a.seatNumber || 99) - (b.seatNumber || 99));
+  $("playerCloud").replaceChildren(...order.map(player => {
+    const row = document.createElement("div");
+    row.className = "playerChip";
+    const label = document.createElement("span");
+    label.textContent = playerLabel(player);
+    const kick = document.createElement("button");
+    kick.type = "button";
+    kick.className = "kickBtn";
+    kick.textContent = "✕";
+    kick.setAttribute("aria-label", "移除 " + player.displayName);
+    kick.onclick = () => run(async () => {
+      await db.runTransaction(async transaction => {
+        const playerRef = roomRef.collection("players").doc(player.id);
+        const [latest, member] = await Promise.all([transaction.get(roomRef), transaction.get(playerRef)]);
+        if (latest.data()?.status !== "lobby" || !member.exists) return;
+        if (member.data().seatNumber) transaction.delete(roomRef.collection("seats").doc(String(member.data().seatNumber)));
+        transaction.delete(playerRef);
+      });
+    });
+    row.append(label, kick);
+    return row;
+  }));
+  setControls();
+}
+
+function playerLabel(player) {
+  return (player.seatNumber ? "#" + player.seatNumber + " " : "") + (player.displayName || "玩家");
+}
+
+function watchQuestion(index) {
+  if (watchedIndex === index) return;
+  stopAnswers?.();
+  watchedIndex = index;
+  answers = [];
+  answersReady = false;
+  stopAnswers = roomRef.collection("answers").where("qIndex", "==", index)
+    .onSnapshot({ includeMetadataChanges: true }, snapshot => {
+      if (watchedIndex !== index) return;
+      answersReady = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
+      answers = snapshot.docs.map(doc => doc.data());
+      if (room.status === "question") {
+        updateAnsweredCount();
+        maybeReveal();
+      }
+      if (room.status === "reveal") renderChart();
+    }, error => notice("讀取作答失敗：" + error.message));
+}
+
+function updateAnsweredCount() {
+  const answered = new Set(answers.map(answer => answer.uid));
+  $("answeredCount").textContent = players.filter(player => answered.has(player.id)).length + " / " + players.length;
+}
+
+function maybeReveal() {
+  if (busy || room?.status !== "question" || !answersReady || !playersReady || !players.length) return;
+  const answered = new Set(answers.map(answer => answer.uid));
+  if (players.every(player => answered.has(player.id))) closeQuestion();
+}
+
+function startQuestion(index) {
+  return run(async () => {
+    await db.runTransaction(async transaction => {
+      const current = (await transaction.get(roomRef)).data();
+      const expected = index === 0 ? "lobby" : "leaderboard";
+      if (current?.status !== expected || (index > 0 && index !== current.currentIndex + 1)) return;
+      const question = current.questions[index];
+      if (!question) throw new Error("找不到下一題。");
+      transaction.update(roomRef, {
+        status: "question",
+        currentIndex: index,
+        revealedAnswer: -1,
+        timeLimit: question.timeLimit,
+        questionStartedAt: stamp()
+      });
+    });
+  });
+}
+
+function renderQuestion() {
+  const question = room.questions[room.currentIndex];
+  $("qProgressBadge").textContent = "第 " + (room.currentIndex + 1) + " / " + room.questions.length + " 題";
+  $("stageQuestionText").textContent = question.text;
+  const image = $("stageQuestionImg");
+  image.classList.toggle("hidden", !question.imageBase64);
+  if (question.imageBase64) image.src = question.imageBase64;
+  else image.removeAttribute("src");
+
+  question.options.forEach((option, index) => {
+    $("optText_" + index).textContent = option;
+    const isReveal = room.status === "reveal";
+    const correct = isReveal && index === room.revealedAnswer;
+    $("optCard_" + index).classList.toggle("correctGlow", correct);
+    $("optCard_" + index).classList.toggle("dimmed", isReveal && !correct);
+    $("optMark_" + index).textContent = correct ? "✓" : "";
+  });
+  $("liveHud").classList.toggle("hidden", room.status !== "question");
+  $("revealChart").classList.toggle("hidden", room.status !== "reveal");
+  $("revealNowBtn").classList.toggle("hidden", room.status === "reveal");
+  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : "⏹ 提前揭曉答案";
+  $("nextStepBtn").classList.toggle("hidden", room.status !== "reveal");
+  $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
+  watchQuestion(room.currentIndex);
+  updateAnsweredCount();
+  if (room.status === "reveal") {
+    renderChart();
+    if (lastReveal !== room.currentIndex) {
+      lastReveal = room.currentIndex;
+      tone(523.25, 0.15);
+      setTimeout(() => tone(659.25, 0.15), 140);
+      setTimeout(() => tone(783.99, 0.32), 280);
+    }
+  }
+}
+
+function renderChart() {
+  const counts = [0, 0, 0, 0];
+  for (const answer of answers) counts[answer.choiceIndex]++;
+  const max = Math.max(1, ...counts);
+  counts.forEach((count, index) => {
+    $("barCount_" + index).textContent = count + (index === room.revealedAnswer ? " ✓" : "");
+    $("barFill_" + index).style.height = (count / max * 100) + "%";
+  });
+}
+
+function startCountdown() {
+  const index = room.currentIndex;
+  const deadline = room.questionStartedAt.toMillis() + room.timeLimit * 1000;
+  lastSoundSecond = -1;
+  const tick = () => {
+    if (room.status !== "question" || room.currentIndex !== index) return;
+    const remaining = Math.min(room.timeLimit, Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    $("timerCircle").textContent = remaining;
+    $("timerCircle").classList.toggle("urgent", remaining <= 5);
+    if (remaining > 0 && remaining <= 5 && remaining !== lastSoundSecond) tone(880, 0.08);
+    lastSoundSecond = remaining;
+    if (remaining === 0 && !busy) {
+      clearInterval(countdown);
+      closeQuestion();
+    }
+  };
+  countdown = setInterval(tick, 200);
+  tick();
+}
+
+function closeQuestion() {
+  return run(async () => {
+    const index = room.currentIndex;
+    const frozen = await db.runTransaction(async transaction => {
+      const current = (await transaction.get(roomRef)).data();
+      if (!current || current.currentIndex !== index || !["question", "grading"].includes(current.status)) return null;
+      if (current.status === "question") transaction.update(roomRef, { status: "grading" });
+      return current;
+    });
+    if (!frozen) return;
+
+    const [answerSnapshot, playerSnapshot] = await Promise.all([
+      roomRef.collection("answers").where("qIndex", "==", index).get({ source: "server" }),
+      roomRef.collection("players").get({ source: "server" })
+    ]);
+    const answerByUid = new Map(answerSnapshot.docs.map(doc => [doc.data().uid, doc.data()]));
+    const correct = correctIndexes[index];
+    const totalMs = frozen.timeLimit * 1000;
+    const startedAt = frozen.questionStartedAt.toMillis();
+    const multiplier = frozen.questions[index].pointsMode === "double" ? 2 : 1;
+
+    for (let start = 0; start < playerSnapshot.docs.length; start += 10) {
+      const group = playerSnapshot.docs.slice(start, start + 10);
+      await db.runTransaction(async transaction => {
+        const current = (await transaction.get(roomRef)).data();
+        if (current?.status !== "grading" || current.currentIndex !== index) return;
+        const members = await Promise.all(group.map(doc => transaction.get(doc.ref)));
+        for (const member of members) {
+          if (!member.exists) continue;
+          const player = member.data();
+          if (player.lastScoredIndex >= index) continue;
+          const answer = answerByUid.get(member.id);
+          const passed = answer?.choiceIndex === correct;
+          const elapsed = answer ? Math.min(totalMs, Math.max(0, answer.submittedAt.toMillis() - startedAt)) : totalMs;
+          const points = passed ? Math.round(1000 - 500 * (elapsed / totalMs)) * multiplier : 0;
+          transaction.update(member.ref, {
+            totalScore: Number(player.totalScore || 0) + points,
+            streak: passed ? Number(player.streak || 0) + 1 : 0,
+            correctCount: Number(player.correctCount || 0) + Number(passed),
+            lastPoints: points,
+            lastScoredIndex: index
+          });
+        }
+      });
+    }
+
+    await db.runTransaction(async transaction => {
+      const current = (await transaction.get(roomRef)).data();
+      if (current?.status === "grading" && current.currentIndex === index) {
+        transaction.update(roomRef, { status: "reveal", revealedAnswer: correct });
+      }
+    });
+  });
+}
+
+function rankPlayers(members) {
+  const ordered = [...members].sort((a, b) => b.totalScore - a.totalScore ||
+    (a.seatNumber || 99) - (b.seatNumber || 99) || a.id.localeCompare(b.id));
+  let rank = 0;
+  return ordered.map((player, index) => {
+    if (index === 0 || player.totalScore !== ordered[index - 1].totalScore) rank = index + 1;
+    return { ...player, rank };
+  });
+}
+
+async function readRanks() {
+  const snapshot = await roomRef.collection("players").get({ source: "server" });
+  return rankPlayers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+}
+
+function advanceFromReveal() {
+  return run(async () => {
+    const index = room.currentIndex;
+    const last = index + 1 === room.questions.length;
+    if (last) {
+      const ranked = await readRanks();
+      for (let offset = 0; offset < ranked.length; offset += 15) {
+        const batch = db.batch();
+        for (const player of ranked.slice(offset, offset + 15)) {
+          batch.update(roomRef.collection("players").doc(player.id), { finalRank: player.rank });
+        }
+        await batch.commit();
+      }
+    }
+    await db.runTransaction(async transaction => {
+      const current = (await transaction.get(roomRef)).data();
+      if (current?.status === "reveal" && current.currentIndex === index) {
+        transaction.update(roomRef, { status: last ? "finished" : "leaderboard" });
+      }
+    });
+  });
+}
+
+function renderLeaderboard(ranked, final, index) {
+  $("boardHeading").textContent = final ? "🏆 最終頒獎台與總成績" : "📊 第 " + (index + 1) + " 題後即時排行榜";
+  $("rankList").replaceChildren(...ranked.map(player => {
+    const row = document.createElement("div");
+    row.className = "rankRow" + (player.rank <= 3 ? " rank" + player.rank : "");
+    const name = document.createElement("span");
+    const score = document.createElement("span");
+    const medal = ["", "🥇", "🥈", "🥉"][player.rank];
+    name.textContent = (medal || ("第 " + player.rank + " 名")) + " " + playerLabel(player);
+    score.textContent = player.totalScore + " 分";
+    row.append(name, score);
+    return row;
+  }));
+  if (!ranked.length) $("rankList").textContent = "尚無玩家分數資料";
+}
+
+let renderedState = "";
+function renderRoom() {
+  const state = room.status + ":" + room.currentIndex;
+  if (state === renderedState) return;
+  renderedState = state;
+  clearInterval(countdown);
+  if (room.status === "lobby") {
+    renderLobby();
+    showView("lobbyView");
+  } else if (["question", "grading", "reveal"].includes(room.status)) {
+    showView("questionView");
+    renderQuestion();
+    if (room.status === "question") {
+      startCountdown();
+      maybeReveal();
+    }
+  } else if (["leaderboard", "finished"].includes(room.status)) {
+    const final = room.status === "finished";
+    $("rankList").textContent = "正在讀取排行榜…";
+    $("nextQuestionBtn").classList.toggle("hidden", final);
+    $("exportCsvBtn").classList.toggle("hidden", !final);
+    $("finishCleanupBtn").classList.toggle("hidden", !final);
+    showView("leaderboardView");
+    readRanks().then(ranks => {
+      if (renderedState === state) renderLeaderboard(ranks, final, room.currentIndex);
+    }).catch(error => {
+      if (renderedState !== state) return;
+      $("rankList").textContent = "讀取排行榜失敗，重新載入頁面可重試。";
+      notice(error.message);
+    });
+  } else if (room.status === "closed") {
+    $("hostLoginBox").classList.add("hidden");
+    $("quizPickerBox").classList.add("hidden");
+    $("setupStatus").textContent = "房間已關閉。若尚有資料，可按右上角繼續清除。";
+    showView("setupView");
+  }
+  setControls();
+}
+
+function csvCell(value) {
+  let text = String(value ?? "");
+  if (typeof value === "string" && /^[\s\uFEFF]*[=+@-]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+
+async function exportCsv() {
+  const ranks = await readRanks();
+  const header = ["名次", "座號", "玩家名稱", "總積分", "答對題數", "總題數", "連線狀態"];
+  const rows = ranks.map(p => [
+    p.rank, p.seatNumber, p.displayName, p.totalScore, p.correctCount || 0,
+    room.questions.length, p.onlineStatus === "left" ? "曾離開頁面" : "未回報離開"
+  ]);
+  const blob = new Blob(["\uFEFF" + [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n")],
+    { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = room.title.replace(/[\\/:*?"<>|]/g, "_") + "_" + roomRef.id + ".csv";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function clearCollection(name) {
+  const collection = roomRef.collection(name);
+  while (true) {
+    const snapshot = await collection.limit(15).get({ source: "server" });
+    if (snapshot.empty) return;
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+  }
+}
+
+function closeRoom() {
+  if (busy || !roomRef || !confirm("確定清除這場遊戲的所有玩家與作答紀錄？請先匯出需要保留的成績。")) return;
+  return run(async () => {
+    await roomRef.update({ status: "closed" });
+    for (const collection of ["answers", "seats", "players"]) await clearCollection(collection);
+    const batch = db.batch();
+    batch.delete(roomRef.collection("private").doc("key"));
+    batch.delete(roomRef);
+    await batch.commit();
+    resetListeners();
+    location.replace("index.html");
+  });
+}
+
+async function setup(reconnect = false) {
+  if (!teacher || setupLoading) return;
+  setupLoading = true;
+  $("retrySetupBtn").disabled = true;
+  $("retrySetupBtn").classList.add("hidden");
+  $("backToEditor").classList.add("hidden");
+  $("quizPickerBox").classList.add("hidden");
+  notice();
+  $("setupStatus").textContent = "正在連線並讀取題庫…";
+  try {
+    if (reconnect) {
+      await db.disableNetwork();
+      await db.enableNetwork();
+    }
+    await loadSetup();
+  } catch (error) {
+    $("setupStatus").textContent = firestoreMessage(error);
+    $("retrySetupBtn").classList.remove("hidden");
+    $("backToEditor").classList.remove("hidden");
+  } finally {
+    setupLoading = false;
+    $("retrySetupBtn").disabled = false;
+  }
+}
+
+async function loadSetup() {
+  const params = new URLSearchParams(location.search);
+  const pin = params.get("room");
+  if (pin && /^\d{6}$/.test(pin)) {
+    const ref = db.collection("rooms").doc(pin);
+    const snapshot = await ref.get({ source: "server" });
+    if (!snapshot.exists || snapshot.data().teacherId !== teacher.uid) throw new Error("找不到可恢復的房間，請回題庫重新開房。");
+    const keys = snapshot.data().status === "closed" ? [] :
+      (await ref.collection("private").doc("key").get({ source: "server" })).data()?.correctIndexes;
+    if (!Array.isArray(keys)) throw new Error("此房間缺少正解資料，請回題庫重新開房。");
+    $("setupStatus").textContent = "";
+    attachRoom(ref, keys);
+    return;
+  }
+  if (params.has("quiz")) {
+    if (!await createRoom(params.get("quiz"))) {
+      $("setupStatus").textContent = $("gameStatus").textContent || "尚未能建立房間，請重試。";
+      notice();
+      $("retrySetupBtn").classList.remove("hidden");
+      $("backToEditor").classList.remove("hidden");
+    } else {
+      $("setupStatus").textContent = "";
+    }
+    return;
+  }
+  const query = await db.collection("quizzes").where("teacherId", "==", teacher.uid).get({ source: "server" });
+  $("setupStatus").textContent = "";
+  $("quizPickerBox").classList.remove("hidden");
+  $("hostQuizList").replaceChildren(...query.docs.map(doc => {
+    const quiz = doc.data();
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btnPrimary";
+    button.textContent = (quiz.title || "未命名題庫") + "（" + (quiz.questions?.length || 0) + " 題）▶";
+    button.onclick = () => createRoom(doc.id);
+    return button;
+  }));
+  if (query.empty) $("hostQuizList").textContent = "尚無題庫，請回題庫管理頁建立題庫。";
+}
+
+$("hostLoginBtn").onclick = async () => {
+  try {
+    await auth.signInWithEmailAndPassword($("hostEmail").value.trim(), $("hostPass").value);
+  } catch (error) {
+    $("setupStatus").textContent = "登入失敗：" + error.message;
+  }
+};
+auth.onAuthStateChanged(user => {
+  teacher = user && !user.isAnonymous ? user : null;
+  $("hostLoginBox").classList.toggle("hidden", Boolean(teacher));
+  if (teacher) setup();
+  else {
+    resetListeners();
+    $("retrySetupBtn").classList.add("hidden");
+    $("backToEditor").classList.add("hidden");
+    $("quizPickerBox").classList.add("hidden");
+    $("setupStatus").textContent = "請先登入教師帳號。";
+    showView("setupView");
+  }
+});
+
+$("retrySetupBtn").onclick = () => setup(true);
+document.addEventListener("click", unlockAudio);
+$("soundToggleBtn").onclick = () => {
+  soundEnabled = !soundEnabled;
+  $("soundToggleBtn").textContent = soundEnabled ? "🔊 音效：開" : "🔇 音效：關";
+};
+$("copyJoinUrlBtn").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($("joinUrlText").textContent);
+    $("copyJoinUrlBtn").textContent = "✅ 已複製加入網址";
+  } catch {
+    notice("目前無法自動複製，請選取下方網址手動複製。");
+  }
+};
+$("startGameBtn").onclick = () => startQuestion(0);
+$("revealNowBtn").onclick = closeQuestion;
+$("nextStepBtn").onclick = advanceFromReveal;
+$("nextQuestionBtn").onclick = () => startQuestion(room.currentIndex + 1);
+$("exportCsvBtn").onclick = () => run(exportCsv);
+$("endRoomBtn").onclick = closeRoom;
+$("finishCleanupBtn").onclick = closeRoom;
+</script>
+</body>
+</html>

@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#46178f">
+<title>Kahoot 學生搶答器</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --purple:#46178f;--purple-dark:#25076b;--red:#e21b3c;--blue:#1368ce;
+  --yellow:#d89e00;--green:#26890c;--ink:#1e293b;--muted:#64748b;--bg:#f2f4f8;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100dvh;font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--ink)}
+body{display:flex;flex-direction:column}
+.hidden{display:none!important}
+.wrap{max-width:560px;width:100%;margin:auto;padding:max(14px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom));flex:1;display:flex;flex-direction:column}
+.card{background:#fff;border-radius:20px;padding:22px;box-shadow:0 10px 28px rgba(15,23,42,.08);margin:auto 0}
+input{width:100%;min-height:52px;border:2px solid #cbd5e1;border-radius:14px;padding:0 14px;font-size:18px;font-weight:800;text-align:center;outline:none;margin:8px 0}
+input:focus{border-color:var(--purple)}
+button{border:0;border-radius:16px;font-weight:900;cursor:pointer;font-family:inherit;transition:.12s}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btnJoin{width:100%;min-height:54px;background:var(--purple);color:#fff;font-size:19px;margin-top:10px}
+.status{padding:11px;border-radius:12px;background:#f3e8ff;color:var(--purple);font-weight:800;text-align:center;margin-top:10px;font-size:14px}
+.status.err{background:#fee2e2;color:#991b1b}
+
+/* 座號快速選擇格 */
+.seatGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin:10px 0}
+.seatBtn{min-height:42px;border:2px solid #cbd5e1;border-radius:10px;background:#fff;color:var(--ink);font-size:15px}
+.seatBtn.selected{background:var(--purple);border-color:var(--purple);color:#fff}
+.seatBtn.taken{background:#e2e8f0;color:#94a3b8;text-decoration:line-through}
+
+/* 遊戲中頂部狀態列 */
+.topHud{background:#fff;padding:10px 16px;border-radius:14px;display:flex;justify-content:space-between;align-items:center;font-weight:900;box-shadow:0 4px 12px rgba(15,23,42,.06);margin-bottom:12px}
+.scorePill{background:var(--purple);color:#fff;padding:5px 12px;border-radius:999px;font-size:14px}
+
+/* 四色超大幾何作答按鈕 */
+.padGrid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;min-height:360px}
+.padBtn{color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:14px;box-shadow:0 7px 0 rgba(0,0,0,.22);word-break:break-word;text-align:center}
+.padBtn:active{transform:translateY(4px);box-shadow:0 2px 0 rgba(0,0,0,.22)}
+.pad0{background:var(--red)}.pad1{background:var(--blue)}.pad2{background:var(--yellow)}.pad3{background:var(--green)}
+.padShape{font-size:clamp(42px,12vw,68px);line-height:1}
+.padLabel{font-size:clamp(16px,4.5vw,21px);line-height:1.25}
+
+/* 全螢幕狀態回饋 */
+.fullBanner{flex:1;border-radius:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px;color:#fff}
+.bannerWait{background:linear-gradient(145deg,#46178f,#25076b)}
+.bannerCorrect{background:linear-gradient(145deg,#16a34a,#15803d)}
+.bannerWrong{background:linear-gradient(145deg,#dc2626,#991b1b)}
+.bigIcon{font-size:84px;margin-bottom:12px}
+.pulse{animation:pulse 1.4s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+@media(prefers-reduced-motion:reduce){.pulse{animation:none}}
+button:focus-visible{outline:3px solid #111827;outline-offset:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- 1. 加入房間畫面 -->
+  <section id="joinView" class="card">
+    <h1 style="text-align:center;color:var(--purple);margin:0 0 6px;font-size:26px">加入搶答遊戲</h1>
+    <div style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:12px">輸入大螢幕上的 6 位數房號，並選擇座號或輸入暱稱</div>
+
+    <input id="pinInput" type="tel" aria-label="房號" inputmode="numeric" maxlength="6" placeholder="輸入 6 位數房間 PIN 碼">
+
+    <div style="font-size:13px;font-weight:800;color:var(--muted);margin-top:8px">快速選擇座號（1～30 號，選填）</div>
+    <div id="seatGrid" class="seatGrid"></div>
+
+    <input id="nameInput" type="text" aria-label="暱稱或姓名" maxlength="16" placeholder="輸入你的暱稱或姓名">
+    <button id="joinBtn" class="btnJoin" disabled type="button">加入遊戲</button>
+    <div id="joinStatus" class="status" role="status">正在連線系統…</div>
+  </section>
+
+  <!-- 2. 等待室畫面 -->
+  <section id="lobbyView" class="fullBanner bannerWait hidden">
+    <div class="bigIcon pulse">🎮</div>
+    <h2 style="font-size:28px;margin:0 0 8px">成功加入房間！</h2>
+    <div id="myPlayerBadge" style="font-size:22px;font-weight:900;background:rgba(255,255,255,.18);padding:8px 20px;border-radius:999px;margin:10px 0"></div>
+    <p style="opacity:.9;line-height:1.6">請看投影大螢幕，主持人按下「開始遊戲」後，作答按鈕會自動出現。</p>
+  </section>
+
+  <!-- 3. 作答畫面 -->
+  <section id="playView" class="hidden" style="flex:1;display:flex;flex-direction:column">
+    <div class="topHud">
+      <span id="playQNum">第 1 題</span>
+      <span id="playName">玩家</span>
+      <span id="playScore" class="scorePill">0 分</span>
+    </div>
+
+    <div id="studentQuestion" class="card hidden" style="margin:0 0 12px">
+      <div id="studentQuestionText" style="font-size:20px;font-weight:800;overflow-wrap:anywhere"></div>
+      <img id="studentQuestionImg" class="hidden" style="max-width:100%;max-height:200px;object-fit:contain;margin-top:8px" alt="題目圖片">
+    </div>
+    <div id="playStatus" class="status hidden" role="status" style="margin:0 0 12px"></div>
+
+    <!-- 四色按鍵區 -->
+    <div id="padGrid" class="padGrid">
+      <button type="button" class="padBtn pad0" data-choice="0">
+        <span class="padShape" aria-hidden="true">▲</span>
+        <span id="padLabel_0" class="padLabel"></span>
+      </button>
+      <button type="button" class="padBtn pad1" data-choice="1">
+        <span class="padShape" aria-hidden="true">◆</span>
+        <span id="padLabel_1" class="padLabel"></span>
+      </button>
+      <button type="button" class="padBtn pad2" data-choice="2">
+        <span class="padShape" aria-hidden="true">●</span>
+        <span id="padLabel_2" class="padLabel"></span>
+      </button>
+      <button type="button" class="padBtn pad3" data-choice="3">
+        <span class="padShape" aria-hidden="true">■</span>
+        <span id="padLabel_3" class="padLabel"></span>
+      </button>
+    </div>
+
+    <!-- 送出答案後等待揭曉 -->
+    <div id="submittedBanner" class="fullBanner bannerWait hidden">
+      <div class="bigIcon pulse">⏳</div>
+      <h2 style="font-size:26px;margin:0">已送出答案！</h2>
+      <p id="submittedMessage" style="opacity:.9">正在等待其他同學作答與大螢幕揭曉…</p>
+    </div>
+
+    <!-- 單題揭曉對錯結果 -->
+    <div id="resultBanner" class="fullBanner bannerCorrect hidden">
+      <div id="resultIcon" class="bigIcon">✓</div>
+      <h2 id="resultTitle" style="font-size:32px;margin:0 0 8px">答對了！</h2>
+      <div id="resultPoints" style="font-size:24px;font-weight:900;background:rgba(0,0,0,.2);padding:8px 20px;border-radius:999px">+0 分</div>
+      <p id="resultSub" style="margin-top:14px;opacity:.92">請看大螢幕排行榜</p>
+    </div>
+  </section>
+
+  <!-- 4. 遊戲結束畫面 -->
+  <section id="finishView" class="fullBanner bannerWait hidden">
+    <div class="bigIcon">🏆</div>
+    <h2 style="font-size:30px;margin:0 0 8px">遊戲結束！</h2>
+    <div id="finalRankText" style="font-size:36px;font-weight:1000;color:#fde047;margin:10px 0"></div>
+    <div id="finalScoreText" style="font-size:22px;font-weight:900"></div>
+    <button id="leaveBtn" type="button" style="margin-top:24px;padding:14px 28px;background:#fff;color:var(--purple);font-size:17px">離開遊戲</button>
+  </section>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB42jwW5T_szUqIlvjw2_mGK2QKtDjyISk",
+  authDomain: "project-8175340549098107213.firebaseapp.com",
+  projectId: "project-8175340549098107213",
+  storageBucket: "project-8175340549098107213.firebasestorage.app",
+  messagingSenderId: "750702770422",
+  appId: "1:750702770422:web:99d24412a55a69033ed4d7",
+  measurementId: "G-NX1J2B4V1S"
+};
+const app = firebase.initializeApp(firebaseConfig, "classroom-student");
+const auth = app.auth();
+const db = app.firestore();
+// 使用長輪詢，避免會緩衝串流回應的網路設備讓 Firestore 誤判離線。
+db.settings({ merge: true, experimentalAutoDetectLongPolling: false, experimentalForceLongPolling: true });
+const stamp = firebase.firestore.FieldValue.serverTimestamp;
+const $ = id => document.getElementById(id);
+const buttons = [...document.querySelectorAll(".padBtn")];
+
+let student;
+let selectedSeat = 0;
+let roomRef;
+let playerRef;
+let room;
+let player;
+let answer;
+let answerIndex = -1;
+let answerReady = false;
+let sendingIndex = -1;
+let feedbackIndex = -1;
+let playerSeen = false;
+let stopSeats;
+let stopRoom;
+let stopPlayer;
+let stopAnswer;
+let audio;
+let generation = 0;
+
+function showView(active) {
+  for (const id of ["joinView", "lobbyView", "playView", "finishView"]) {
+    $(id).classList.toggle("hidden", id !== active);
+  }
+}
+
+function joinStatus(message, error = false) {
+  $("joinStatus").textContent = message;
+  $("joinStatus").classList.toggle("err", error);
+}
+
+function playStatus(message = "", error = false) {
+  $("playStatus").textContent = message;
+  $("playStatus").classList.toggle("hidden", !message);
+  $("playStatus").classList.toggle("err", error);
+}
+
+function unlockAudio() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  try {
+    audio ||= new AudioContext();
+    audio.resume().catch(() => {});
+  } catch {}
+}
+
+function playFeedback(correct) {
+  if (audio?.state !== "running") return;
+  const now = audio.currentTime;
+  const gain = audio.createGain();
+  gain.gain.setValueAtTime(0.12, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+  gain.connect(audio.destination);
+  const notes = correct ? [523.25, 783.99] : [240, 165];
+  notes.forEach((frequency, index) => {
+    const osc = audio.createOscillator();
+    osc.type = correct ? "sine" : "triangle";
+    osc.frequency.value = frequency;
+    osc.connect(gain);
+    osc.start(now + index * 0.16);
+    osc.stop(now + (index + 1) * 0.16);
+  });
+}
+
+function seatLabel(number) {
+  return "座號 " + number + " 號";
+}
+
+function chooseSeat(number) {
+  const input = $("nameInput");
+  const previous = selectedSeat;
+  selectedSeat = number;
+  for (const button of $("seatGrid").children) {
+    const selected = Number(button.dataset.seat) === number;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  }
+  if (!input.value.trim() || (previous && input.value.trim() === seatLabel(previous))) {
+    input.value = number ? seatLabel(number) : "";
+  }
+}
+
+for (let number = 1; number <= 30; number++) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "seatBtn";
+  button.dataset.seat = number;
+  button.textContent = number;
+  button.setAttribute("aria-label", seatLabel(number));
+  button.setAttribute("aria-pressed", "false");
+  button.onclick = () => chooseSeat(selectedSeat === number ? 0 : number);
+  $("seatGrid").append(button);
+}
+
+function watchSeats(pin) {
+  stopSeats?.();
+  stopSeats = null;
+  for (const button of $("seatGrid").children) {
+    button.disabled = false;
+    button.classList.remove("taken");
+  }
+  if (!student || !/^\d{6}$/.test(pin)) return;
+  stopSeats = db.collection("rooms").doc(pin).collection("seats").onSnapshot(snapshot => {
+    if ($("pinInput").value !== pin || roomRef) return;
+    const taken = new Set(snapshot.docs.map(doc => doc.id));
+    for (const button of $("seatGrid").children) {
+      const occupied = taken.has(button.dataset.seat);
+      button.disabled = occupied;
+      button.classList.toggle("taken", occupied);
+    }
+    if (taken.has(String(selectedSeat))) chooseSeat(0);
+  }, () => {
+    if ($("pinInput").value === pin && !roomRef) {
+      joinStatus("目前無法顯示座號占用狀態，加入時會再確認。");
+    }
+  });
+}
+
+$("pinInput").oninput = event => {
+  const input = event.target;
+  const before = input.value;
+  input.value = before.replace(/[^0-9]/g, "").slice(0, 6);
+  chooseSeat(0);
+  watchSeats(input.value);
+};
+
+function setPinInUrl(pin) {
+  const url = new URL(location.href);
+  if (pin) url.searchParams.set("pin", pin);
+  else url.searchParams.delete("pin");
+  history.replaceState(null, "", url);
+}
+
+function resetSession(message, preservePin = false) {
+  generation++;
+  stopRoom?.();
+  stopPlayer?.();
+  stopAnswer?.();
+  stopRoom = stopPlayer = stopAnswer = null;
+  roomRef = playerRef = room = player = answer = null;
+  answerIndex = sendingIndex = feedbackIndex = -1;
+  answerReady = playerSeen = false;
+  if (!preservePin) {
+    $("pinInput").value = "";
+    setPinInUrl("");
+  }
+  showView("joinView");
+  chooseSeat(0);
+  watchSeats($("pinInput").value);
+  $("joinBtn").disabled = !student;
+  joinStatus(message);
+}
+
+function connect(ref) {
+  stopSeats?.();
+  stopSeats = null;
+  roomRef = ref;
+  playerRef = ref.collection("players").doc(student.uid);
+  setPinInUrl(ref.id);
+  $("myPlayerBadge").textContent = "正在同步…";
+  showView("lobbyView");
+
+  stopRoom = ref.onSnapshot({ includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
+    if (!snapshot.exists || snapshot.data().status === "closed") {
+      resetSession("這個房間已關閉。");
+      return;
+    }
+    room = snapshot.data();
+    if (["question", "grading", "reveal", "leaderboard"].includes(room.status)) watchAnswer(room.currentIndex);
+    render();
+  }, error => resetSession("無法讀取房間：" + error.message, true));
+
+  stopPlayer = playerRef.onSnapshot({ includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
+    if (!snapshot.exists) {
+      if (playerSeen) resetSession("你已離開房間，請向主持人確認。", true);
+      return;
+    }
+    playerSeen = true;
+    player = snapshot.data();
+    render();
+  }, error => resetSession("無法讀取玩家資料：" + error.message, true));
+}
+
+async function joinRoom() {
+  if (!student || $("joinBtn").disabled) return;
+  const pin = $("pinInput").value.trim();
+  const seat = selectedSeat;
+  const name = $("nameInput").value.trim() || (seat ? seatLabel(seat) : "");
+  if (!/^\d{6}$/.test(pin)) return joinStatus("請輸入 6 位數房間 PIN 碼。", true);
+  if (!name) return joinStatus("請選擇座號或輸入暱稱。", true);
+
+  $("joinBtn").disabled = true;
+  joinStatus("正在加入房間…");
+  try {
+    const ref = db.collection("rooms").doc(pin);
+    const member = ref.collection("players").doc(student.uid);
+    const seatRef = seat ? ref.collection("seats").doc(String(seat)) : null;
+    await db.runTransaction(async transaction => {
+      const [roomSnap, playerSnap] = await Promise.all([transaction.get(ref), transaction.get(member)]);
+      if (!roomSnap.exists || roomSnap.data().status === "closed") throw new Error("找不到此房號，請確認大螢幕顯示的號碼。");
+      if (playerSnap.exists) {
+        if (playerSnap.data().onlineStatus === "left") transaction.update(member, { onlineStatus: "online" });
+        return;
+      }
+      if (roomSnap.data().status !== "lobby") throw new Error("遊戲已開始，請等下一場。");
+      if (seatRef && (await transaction.get(seatRef)).exists) throw new Error("此座號已被選走，請重新選擇。");
+      transaction.set(member, {
+        uid: student.uid,
+        displayName: name,
+        seatNumber: seat || null,
+        totalScore: 0,
+        correctCount: 0,
+        streak: 0,
+        lastPoints: 0,
+        lastScoredIndex: -1,
+        onlineStatus: "online",
+        joinedAt: stamp()
+      });
+      if (seatRef) transaction.set(seatRef, { uid: student.uid });
+    });
+    connect(ref);
+  } catch (error) {
+    joinStatus(error.message || "加入失敗，請重試。", true);
+    $("joinBtn").disabled = false;
+  }
+}
+
+function currentAnswerRef(index) {
+  return roomRef.collection("answers").doc(student.uid + "_" + index);
+}
+
+function watchAnswer(index) {
+  if (index === answerIndex) return;
+  stopAnswer?.();
+  answerIndex = index;
+  answerReady = false;
+  answer = null;
+  playStatus();
+  stopAnswer = currentAnswerRef(index).onSnapshot({ includeMetadataChanges: true }, snapshot => {
+    if (answerIndex !== index) return;
+    if (snapshot.metadata.hasPendingWrites) return;
+    answerReady = !snapshot.metadata.fromCache;
+    answer = snapshot.data() || null;
+    render();
+  }, error => {
+    playStatus("讀取作答狀態失敗：" + error.message, true);
+  });
+}
+
+function setPlaySections({ choices = false, waiting = false, result = false }) {
+  $("padGrid").classList.toggle("hidden", !choices);
+  $("submittedBanner").classList.toggle("hidden", !waiting);
+  $("resultBanner").classList.toggle("hidden", !result);
+}
+
+function render() {
+  if (!room || !player) return;
+  const label = player.seatNumber && player.displayName !== seatLabel(player.seatNumber) ?
+    "#" + player.seatNumber + " " + player.displayName : player.displayName;
+  $("myPlayerBadge").textContent = label;
+  $("playName").textContent = label;
+  if (room.status === "lobby") {
+    showView("lobbyView");
+    return;
+  }
+  if (room.status === "finished") {
+    $("finalRankText").textContent = player.finalRank ? "第 " + player.finalRank + " 名" : "正在同步名次…";
+    $("finalScoreText").textContent = "總積分 " + player.totalScore + " 分";
+    showView("finishView");
+    return;
+  }
+
+  const index = room.currentIndex;
+  const question = room.questions[index];
+  showView("playView");
+  $("playQNum").textContent = "第 " + (index + 1) + " / " + room.questions.length + " 題";
+  if (!(room.status === "grading" && player.lastScoredIndex === index)) $("playScore").textContent = player.totalScore + " 分";
+  $("studentQuestionText").textContent = question.text;
+  $("studentQuestion").classList.remove("hidden");
+  const picture = $("studentQuestionImg");
+  picture.classList.toggle("hidden", !question.imageBase64);
+  if (question.imageBase64 && picture.getAttribute("src") !== question.imageBase64) picture.src = question.imageBase64;
+  if (!question.imageBase64) picture.removeAttribute("src");
+  if (room.status === "question") {
+    const sending = sendingIndex === index;
+    setPlaySections({ choices: !sending && !answer, waiting: sending || Boolean(answer) });
+    $("submittedBanner").querySelector("h2").textContent = sending ? "正在送出答案…" : "已送出答案！";
+    $("submittedMessage").textContent = "正在等待其他同學作答與大螢幕揭曉…";
+    for (const button of buttons) {
+      const choice = Number(button.dataset.choice);
+      $("padLabel_" + choice).textContent = question.options[choice];
+      button.disabled = !answerReady || sending || Boolean(answer);
+    }
+    return;
+  }
+  if (room.status === "grading") {
+    setPlaySections({ waiting: true });
+    $("submittedBanner").querySelector("h2").textContent = "本題已停止作答";
+    $("submittedMessage").textContent = "正在結算成績…";
+    return;
+  }
+
+  if (!answerReady || player.lastScoredIndex !== index) {
+    setPlaySections({ waiting: true });
+    $("submittedBanner").querySelector("h2").textContent = "正在同步本題結果…";
+    $("submittedMessage").textContent = "請稍候。";
+    return;
+  }
+  playStatus();
+  setPlaySections({ result: true });
+  const correct = answer?.choiceIndex === room.revealedAnswer;
+  $("resultBanner").className = "fullBanner " + (correct ? "bannerCorrect" : answer ? "bannerWrong" : "bannerWait");
+  $("resultIcon").textContent = correct ? "✓" : answer ? "✕" : "⏱";
+  $("resultTitle").textContent = correct ? "答對了！" : answer ? "答錯了" : "本題未作答";
+  $("resultPoints").textContent = "+" + (player.lastPoints || 0) + " 分";
+  $("resultSub").textContent = "正解：" + question.options[room.revealedAnswer] +
+    (room.status === "leaderboard" ? "｜請看大螢幕排行榜" : "");
+  if (feedbackIndex !== index) {
+    feedbackIndex = index;
+    if (answer) playFeedback(correct);
+  }
+}
+
+$("padGrid").onclick = async event => {
+  const button = event.target.closest(".padBtn");
+  if (!button || button.disabled || room?.status !== "question" || !answerReady || answer || sendingIndex === room.currentIndex) return;
+  const index = room.currentIndex;
+  const activeSession = generation;
+  const ref = currentAnswerRef(index);
+  sendingIndex = index;
+  playStatus();
+  render();
+  let warning = "";
+  try {
+    const data = { uid: student.uid, qIndex: index, choiceIndex: Number(button.dataset.choice), submittedAt: stamp() };
+    await ref.set(data);
+    if (generation === activeSession && index === answerIndex) answer = data;
+  } catch {
+    try {
+      const saved = await ref.get({ source: "server" });
+      if (saved.exists && generation === activeSession && index === answerIndex) answer = saved.data();
+      else warning = "答案未送達，可能已停止作答。仍可作答時請再點一次。";
+    } catch {
+      warning = "無法確認答案是否送達，請檢查網路連線。";
+    }
+  } finally {
+    if (generation === activeSession) {
+      if (sendingIndex === index) sendingIndex = -1;
+      if (index === answerIndex && room.status === "question" && warning) playStatus(warning, true);
+      render();
+    }
+  }
+};
+
+$("joinBtn").onclick = joinRoom;
+for (const id of ["pinInput", "nameInput"]) {
+  $(id).onkeydown = event => { if (event.key === "Enter") joinRoom(); };
+}
+document.addEventListener("click", unlockAudio);
+$("leaveBtn").onclick = () => {
+  playerRef?.update({ onlineStatus: "left" }).catch(() => {});
+  resetSession("已離開遊戲，可以輸入新的房號。");
+};
+
+function initialAuthState() {
+  return new Promise((resolve, reject) => {
+    const unsubscribe = auth.onAuthStateChanged(user => { unsubscribe(); resolve(user); }, reject);
+  });
+}
+
+async function init() {
+  const pin = new URLSearchParams(location.search).get("pin") || "";
+  if (/^\d{6}$/.test(pin)) $("pinInput").value = pin;
+  try {
+    student = await initialAuthState() || (await auth.signInAnonymously()).user;
+    if (!student.isAnonymous) throw new Error("無法使用學生身分登入。");
+  } catch (error) {
+    student = null;
+    joinStatus("無法連線。請確認網路與 Firebase 匿名登入設定，再重新整理頁面。 " + error.message, true);
+    return;
+  }
+  try {
+    if ($("pinInput").value === pin && /^\d{6}$/.test(pin)) {
+      const ref = db.collection("rooms").doc(pin);
+      const [active, member] = await Promise.all([
+        ref.get({ source: "server" }),
+        ref.collection("players").doc(student.uid).get({ source: "server" })
+      ]);
+      if (active.exists && active.data().status !== "closed" && member.exists) {
+        connect(ref);
+        return;
+      }
+    }
+    joinStatus("連線就緒，請選座號或輸入暱稱。");
+  } catch {
+    joinStatus("無法同步舊座位。請確認房號與網路，再按加入。", true);
+  }
+  watchSeats($("pinInput").value);
+  $("joinBtn").disabled = false;
+}
+
+init();
+</script>
+</body>
+</html>
