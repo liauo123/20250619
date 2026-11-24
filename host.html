@@ -50,6 +50,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
 .questionBox{background:#fff;border-radius:20px;padding:24px;text-align:center;box-shadow:0 8px 24px rgba(15,23,42,.07);margin-bottom:18px}
 .questionText{font-size:clamp(24px,3.6vw,38px);font-weight:1000;line-height:1.4;margin:0}
 .questionImg{max-height:240px;max-width:100%;border-radius:14px;margin-top:14px;object-fit:contain;border:1px solid #e2e8f0}
+.stageVideo{display:block;width:min(100%,520px);height:min(27vh,290px);margin:8px auto;border:0}.hostOptionImage{width:clamp(44px,10vw,140px);height:clamp(42px,11vh,110px);object-fit:contain;background:white;border-radius:8px;flex-shrink:0}
 .midHUD{display:flex;justify-content:space-between;align-items:center;margin:14px 0;gap:16px}
 .timerCircle{width:86px;height:86px;border-radius:50%;background:var(--purple);color:#fff;font-size:34px;font-weight:1000;display:grid;place-items:center;box-shadow:0 8px 20px rgba(70,23,143,.28);flex:none}
 .timerCircle.urgent{background:var(--red);animation:pulse .7s infinite}
@@ -151,6 +152,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
       <p id="stageQuestionText" class="questionText"></p>
       <img id="stageQuestionImg" class="questionImg hidden" alt="題目圖片">
       <a id="stageDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
+      <iframe id="stageVideo" class="stageVideo hidden" title="題目影片" allowfullscreen></iframe><a id="stageVideoLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟影片</a>
     </div>
 
     <!-- 作答中計時與人數 -->
@@ -259,6 +261,7 @@ let soundEnabled = true;
 let audio;
 
 function showView(id) {
+  if (id !== "questionView") { $("stageVideo").removeAttribute("src"); $("stageVideo").classList.add("hidden"); }
   for (const view of ["setupView", "lobbyView", "questionView", "leaderboardView"]) {
     $(view).classList.toggle("hidden", view !== id);
   }
@@ -345,6 +348,8 @@ async function createRoom(quizId) {
       text: q.text,
       imageBase64: "",
       imageDriveId: /^[A-Za-z0-9_-]{10,150}$/.test(q.imageDriveId || "") ? q.imageDriveId : "",
+      videoDriveId: mediaId(q.videoDriveId),
+      optionImageDriveIds: Array.from({length:4},(_,i)=>mediaId(q.optionImageDriveIds?.[i])),
       options: q.options,
       timeLimit: Math.min(60, Math.max(5, Math.round(Number(q.timeLimit) || 20))),
       pointsMode: q.pointsMode === "double" ? "double" : "standard"
@@ -519,6 +524,7 @@ function startQuestion(index) {
   });
 }
 
+function mediaId(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(value) ? value : ""; }
 function renderQuestion() {
   const question = room.questions[room.currentIndex];
   $("qProgressBadge").textContent = "第 " + (room.currentIndex + 1) + " / " + room.questions.length + " 題";
@@ -532,9 +538,18 @@ function renderQuestion() {
   image.classList.toggle("hidden", !src);
   if (src) { if (image.getAttribute("src") !== src) image.src = src; }
   else image.removeAttribute("src");
+  const vid = mediaId(question.videoDriveId), frame = $("stageVideo"), videoLink = $("stageVideoLink");
+  const videoSrc = vid ? `https://drive.google.com/file/d/${vid}/preview` : "";
+  frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
+  if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
   question.options.forEach((option, index) => {
     $("optText_" + index).textContent = option;
+    const card = $("optCard_" + index), id = mediaId(question.optionImageDriveIds?.[index]);
+    let picture = card.querySelector(".hostOptionImage");
+    if (!picture) { picture = document.createElement("img"); picture.className = "hostOptionImage hidden"; picture.alt = `選項 ${index+1} 圖片`; card.insertBefore(picture, $("optText_" + index)); }
+    picture.classList.toggle("hidden", !id);
+    if (id) { const url = `https://drive.google.com/thumbnail?id=${id}&sz=w540`; if (picture.getAttribute("src") !== url) picture.src = url; } else picture.removeAttribute("src");
     const isReveal = room.status === "reveal";
     const correct = isReveal && index === room.revealedAnswer;
     $("optCard_" + index).classList.toggle("correctGlow", correct);

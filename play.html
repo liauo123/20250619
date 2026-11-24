@@ -57,6 +57,15 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
 @media(prefers-reduced-motion:reduce){.pulse{animation:none}}
 button:focus-visible{outline:3px solid #111827;outline-offset:3px}
+.wrap.inGame{max-width:900px;min-height:100dvh;margin:0 auto;padding:max(5px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom))}
+.inGame .topHud{padding:5px 9px;margin-bottom:5px;gap:5px;font-size:clamp(12px,3vw,16px);flex-wrap:wrap}.inGame .scorePill{padding:3px 8px}
+.inGame #studentQuestion{padding:6px;margin:0 0 5px!important;text-align:center}.inGame #studentQuestionText{font-size:clamp(14px,3.5vw,20px)!important}
+.inGame #studentQuestionImg{max-height:min(20dvh,180px)!important;margin-top:3px!important}.studentVideo{display:block;width:min(100%,480px);height:min(25dvh,240px);margin:3px auto;border:0}.inGame #studentQuestion a{font-size:12px;display:inline-block}
+.inGame .padGrid{min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:7px;flex:1}.inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}.inGame .padShape{font-size:clamp(18px,5dvh,42px)}.inGame .padLabel{font-size:clamp(12px,3vw,19px);overflow-wrap:anywhere}.padImage{display:block;width:100%;height:min(13dvh,110px);object-fit:contain;background:white;border-radius:6px}.padBtn:has(.padImage:not(.hidden)) .padShape{font-size:clamp(14px,3dvh,26px)}
+.inGame .fullBanner{padding:12px}.inGame .bigIcon{font-size:clamp(33px,10dvh,84px)}
+.inGame #studentQuestion:has(#studentVideo:not(.hidden)) #studentQuestionImg{max-height:11dvh!important}.inGame #studentQuestion:has(#studentQuestionImg:not(.hidden)) .studentVideo{height:min(19dvh,180px)}
+@media(max-height:650px){.inGame .padBtn{gap:2px;padding:3px}.inGame .padImage{height:9dvh}.inGame #studentQuestion a{font-size:10px}.inGame .topHud{margin-bottom:3px}.inGame .padGrid{gap:5px}}
+@media (orientation:landscape) and (max-height:600px){.inGame #playView{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto 1fr;gap:5px}.inGame #playView.hidden{display:none!important}.inGame .topHud{grid-column:1/-1}.inGame #studentQuestion{grid-column:1;grid-row:2;align-self:stretch}.inGame #padGrid,.inGame #submittedBanner,.inGame #resultBanner{grid-column:2;grid-row:2}.inGame #playStatus:not(.hidden){grid-column:1/-1;grid-row:3}.inGame .studentVideo{height:min(45dvh,240px)}.inGame #studentQuestionImg{max-height:35dvh!important}.inGame .padImage{height:18dvh}}
 </style>
 </head>
 <body>
@@ -96,6 +105,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
       <div id="studentQuestionText" style="font-size:20px;font-weight:800;overflow-wrap:anywhere"></div>
       <img id="studentQuestionImg" class="hidden" style="max-width:100%;max-height:200px;object-fit:contain;margin-top:8px" alt="題目圖片">
       <a id="studentDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
+      <iframe id="studentVideo" class="studentVideo hidden" title="題目影片" allowfullscreen></iframe><a id="studentVideoLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟影片</a>
     </div>
     <div id="playStatus" class="status hidden" role="status" style="margin:0 0 12px"></div>
 
@@ -161,7 +171,9 @@ const db = app.firestore();
 // 使用長輪詢，避免會緩衝串流回應的網路設備讓 Firestore 誤判離線。
 db.settings({ merge: true, experimentalAutoDetectLongPolling: false, experimentalForceLongPolling: true });
 const stamp = firebase.firestore.FieldValue.serverTimestamp;
-const $ = id => document.getElementById(id);
+const joinPanel = document.getElementById("joinView");
+const joinNodes = new Map([joinPanel,...joinPanel.querySelectorAll("[id]")].map(el=>[el.id,el]));
+const $ = id => document.getElementById(id) || joinNodes.get(id);
 const buttons = [...document.querySelectorAll(".padBtn")];
 
 let student;
@@ -184,6 +196,11 @@ let audio;
 let generation = 0;
 
 function showView(active) {
+  const wrap = document.querySelector(".wrap");
+  wrap.classList.toggle("inGame", active !== "joinView");
+  if (active === "joinView" && !joinPanel.isConnected) wrap.prepend(joinPanel);
+  if (active !== "joinView" && joinPanel.isConnected) joinPanel.remove();
+  if (active !== "playView") { $("studentVideo").removeAttribute("src"); $("studentVideo").classList.add("hidden"); }
   for (const id of ["joinView", "lobbyView", "playView", "finishView"]) {
     $(id).classList.toggle("hidden", id !== active);
   }
@@ -453,6 +470,11 @@ function render() {
   picture.classList.toggle("hidden", !src);
   if (src && picture.getAttribute("src") !== src) picture.src = src;
   if (!src) picture.removeAttribute("src");
+  const mediaId = v=>typeof v === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(v) ? v : "";
+  const vid = mediaId(question.videoDriveId), frame = $("studentVideo"), videoLink = $("studentVideoLink");
+  const videoSrc = vid ? `https://drive.google.com/file/d/${vid}/preview` : "";
+  frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
+  if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
   if (room.status === "question") {
     const sending = sendingIndex === index;
     setPlaySections({ choices: !sending && !answer, waiting: sending || Boolean(answer) });
@@ -461,6 +483,11 @@ function render() {
     for (const button of buttons) {
       const choice = Number(button.dataset.choice);
       $("padLabel_" + choice).textContent = question.options[choice];
+      const id = mediaId(question.optionImageDriveIds?.[choice]);
+      let img = button.querySelector(".padImage");
+      if (!img) { img = document.createElement("img"); img.className = "padImage hidden"; img.alt = `選項 ${choice+1} 圖片`; button.insertBefore(img,$("padLabel_" + choice)); }
+      img.classList.toggle("hidden", !id);
+      if (id) { const url = `https://drive.google.com/thumbnail?id=${id}&sz=w540`; if (img.getAttribute("src") !== url) img.src = url; } else img.removeAttribute("src");
       button.disabled = !answerReady || sending || Boolean(answer);
     }
     return;
@@ -485,7 +512,7 @@ function render() {
   $("resultIcon").textContent = correct ? "✓" : answer ? "✕" : "⏱";
   $("resultTitle").textContent = correct ? "答對了！" : answer ? "答錯了" : "本題未作答";
   $("resultPoints").textContent = "+" + (player.lastPoints || 0) + " 分";
-  $("resultSub").textContent = "正解：" + question.options[room.revealedAnswer] +
+  $("resultSub").textContent = "正解：" + (question.options[room.revealedAnswer] || `選項 ${room.revealedAnswer+1}`) +
     (room.status === "leaderboard" ? "｜請看大螢幕排行榜" : "");
   if (feedbackIndex !== index) {
     feedbackIndex = index;

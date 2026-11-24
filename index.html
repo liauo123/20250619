@@ -59,6 +59,7 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
 .opt0{background:var(--red)}.opt1{background:var(--blue)}.opt2{background:var(--yellow)}.opt3{background:var(--green)}
 .optShape{font-size:18px;width:24px;text-align:center;flex:none}
 .optBox input[type="text"]{border:0;border-radius:8px;padding:9px 10px;font-size:14px;font-weight:700;color:var(--ink)}
+.optBox{flex-wrap:wrap}.optMedia{flex-basis:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.optMedia img{width:92px;height:72px;object-fit:contain;background:#fff;border-radius:8px}.videoEditor{margin:8px 0;padding:10px;border:1px solid #cbd5e1;border-radius:10px}.videoEditor iframe{display:block;width:min(100%,480px);aspect-ratio:16/9;border:0}
 .optRadio{display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;background:rgba(0,0,0,.22);padding:6px 8px;border-radius:8px}
 .optRadio input{width:16px;height:16px;margin:0;accent-color:#fff;cursor:pointer}
 
@@ -202,15 +203,30 @@ async function getDriveFolder() {
   return (driveFolder = folder.id);
 }
 async function uploadDriveImage(data, user, version) {
+  const raw = atob(data.split(",")[1]);
+  return uploadDriveMedia(Uint8Array.from(raw, c => c.charCodeAt(0)), "image/jpeg", "jpg", user, version);
+}
+async function uploadDriveMedia(bytes, mime, extension, user, version) {
   const folder = await getDriveFolder();
   const guard = () => { if (currentUser !== user || editorVersion !== version) throw new Error("編輯狀態已變更，取消儲存。"); };
   guard();
-  const raw = atob(data.split(",")[1]);
-  const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
   const boundary = "classroom_" + crypto.randomUUID();
-  const metadata = {name:`question-${crypto.randomUUID()}.jpg`,mimeType:"image/jpeg",parents:[folder]};
-  const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: image/jpeg\r\n\r\n`,bytes,`\r\n--${boundary}--\r\n`]);
-  const file = await driveRequest("/upload/drive/v3/files?uploadType=multipart&fields=id", {method:"POST",headers:{"Content-Type":`multipart/related; boundary=${boundary}`},body});
+  const metadata = {name:`question-${crypto.randomUUID()}.${extension}`,mimeType:mime,parents:[folder]};
+  const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`,bytes,`\r\n--${boundary}--\r\n`]);
+  let file;
+  if (mime === "video/mp4") {
+    requireDrive();
+    const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {method:"POST",headers:{Authorization:`Bearer ${driveToken}`,"Content-Type":"application/json","X-Upload-Content-Type":mime,"X-Upload-Content-Length":String(bytes.size)},body:JSON.stringify(metadata)});
+    if (!start.ok) throw new Error(`影片上傳初始化失敗 (${start.status})`);
+    const session = start.headers.get("Location");
+    if (!session || new URL(session).origin !== "https://www.googleapis.com") throw new Error("無法取得影片上傳連線。");
+    guard(); requireDrive();
+    const uploaded = await fetch(session,{method:"PUT",headers:{Authorization:`Bearer ${driveToken}`,"Content-Type":mime},body:bytes});
+    if (!uploaded.ok || uploaded.status === 308) throw new Error(`影片上傳未完成 (${uploaded.status})，請重新選擇影片。`);
+    file = await uploaded.json();
+  } else {
+    file = await driveRequest("/upload/drive/v3/files?uploadType=multipart&fields=id", {method:"POST",headers:{"Content-Type":`multipart/related; boundary=${boundary}`},body});
+  }
   guard();
   await driveRequest(`/drive/v3/files/${encodeURIComponent(file.id)}/permissions`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"anyone",role:"reader",allowFileDiscovery:false})});
   return file.id;
@@ -227,6 +243,8 @@ function createEmptyQuestion() {
     text: "",
     imageBase64: "",
     imageDriveId: "",
+    videoDriveId: "",
+    optionImageDriveIds: ["", "", "", ""],
     options: ["", "", "", ""],
     correctIndex: 0,
     timeLimit: 20,
@@ -299,6 +317,8 @@ function normalizeQuestion(q) {
     text: String(q.text || ""),
     imageBase64: validImage(q.imageBase64),
     imageDriveId: validDriveId(q.imageDriveId),
+    videoDriveId: validDriveId(q.videoDriveId),
+    optionImageDriveIds: Array.from({length:4}, (_,i)=>validDriveId(q.optionImageDriveIds?.[i])),
     options: Array.from({ length: 4 }, (_, index) => String(q.options?.[index] || "")),
     correctIndex: Number.isInteger(correct) && correct >= 0 && correct <= 3 ? correct : 0,
     timeLimit: [10, 15, 20, 30, 45, 60].includes(Number(q.timeLimit)) ? Number(q.timeLimit) : 20,
@@ -350,6 +370,10 @@ function renderQuestions() {
         ` : `<button type="button" class="btnLight qPickImgBtn" data-idx="${idx}">🖼️ 加入題目插圖（也可拖曳圖片到此）</button>`}
       </div>
 
+      <div class="videoEditor">
+        ${q.videoDriveId ? `<iframe title="題目影片預覽" src="https://drive.google.com/file/d/${esc(q.videoDriveId)}/preview" allowfullscreen></iframe><a href="${esc(driveView(q.videoDriveId))}" target="_blank" rel="noopener noreferrer">開啟影片</a><button type="button" class="btnDanger qRemoveVideo" data-idx="${idx}">移除影片</button>` : ""}
+        <label>🎬 ${q.videoDriveId ? "更換" : "上傳"}題目影片（MP4，30 MB 以內） <input type="file" class="qVideoInput" data-idx="${idx}" accept="video/mp4,.mp4"></label>
+      </div>
       <div class="qMetaRow">
         <div>
           <label style="font-size:12px;color:var(--muted);font-weight:700">作答秒數</label>
@@ -375,6 +399,7 @@ function renderQuestions() {
               <input type="radio" name="correct_${idx}" class="qCorrectRadio" data-idx="${idx}" data-opt="${optIdx}" ${Number(q.correctIndex) === optIdx ? "checked" : ""}>
               正解
             </label>
+            <div class="optMedia">${q.optionImageDriveIds?.[optIdx] ? `<img src="${esc(driveImage(q.optionImageDriveIds[optIdx]))}" alt="選項圖片"><button type="button" class="btnDanger qRemoveOptImg" data-idx="${idx}" data-opt="${optIdx}">移除圖片</button>` : ""}<label>🖼️ 選項圖片 <input type="file" class="qOptFile" data-idx="${idx}" data-opt="${optIdx}" accept="image/*"></label></div>
           </div>
         `).join("")}
       </div>
@@ -384,6 +409,28 @@ function renderQuestions() {
 }
 
 function bindQuestionEvents() {
+  document.querySelectorAll(".qVideoInput,.qOptFile").forEach(el => el.onchange = async () => {
+    const file = el.files?.[0], q = questions[el.dataset.idx], opt = Number(el.dataset.opt), video = el.classList.contains("qVideoInput");
+    if (!file || !q || $("saveQuizBtn").disabled) return;
+    const user = currentUser, version = editorVersion;
+    try {
+      requireDrive();
+      if (video && (file.type !== "video/mp4" && !(file.type === "" && /\.mp4$/i.test(file.name)) || file.size > 30*1024*1024 || !file.size)) throw new Error("請選擇 30 MB 以內的 MP4 影片。");
+      if (!confirm("此教材會上傳至 Google Drive，並開放知道連結的人查看。請確認不含學生個資。是否繼續？")) return;
+      $("saveQuizBtn").disabled = true;
+      setStatus("editorStatus", "正在上傳教材至 Google Drive…");
+      const id = video ? await uploadDriveMedia(file,"video/mp4","mp4",user,version) : await uploadDriveImage(await compressImageFile(file),user,version);
+      if (currentUser !== user || editorVersion !== version || !questions.includes(q)) throw new Error("編輯內容已變更，請重新選擇教材。");
+      if (video) q.videoDriveId = id; else q.optionImageDriveIds[opt] = id;
+      saveDraft(); renderQuestions(); setStatus("editorStatus", "教材已上傳，請儲存題庫。", "ok");
+    } catch(e) { setStatus("editorStatus", e.message, "err"); } finally { $("saveQuizBtn").disabled = false; el.value = ""; }
+  });
+  document.querySelectorAll(".qRemoveVideo,.qRemoveOptImg").forEach(el => el.onclick = () => {
+    if ($("saveQuizBtn").disabled) return;
+    const q = questions[el.dataset.idx];
+    if (el.classList.contains("qRemoveVideo")) q.videoDriveId = ""; else q.optionImageDriveIds[Number(el.dataset.opt)] = "";
+    renderQuestions(); scheduleDraftSave();
+  });
   document.querySelectorAll(".qTextInput").forEach(el => {
     el.addEventListener("input", e => {
       questions[e.target.dataset.idx].text = e.target.value;
@@ -519,8 +566,8 @@ $("saveQuizBtn").onclick = async () => {
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
     if (!q.text.trim()) return setStatus("editorStatus", `第 ${i + 1} 題尚未輸入題目文字。`, "err");
-    if (q.options.some(opt => !String(opt || "").trim())) {
-      return setStatus("editorStatus", `第 ${i + 1} 題的四個選項都必須填寫完整。`, "err");
+    if (q.options.some((opt,j) => !String(opt || "").trim() && !validDriveId(q.optionImageDriveIds?.[j]))) {
+      return setStatus("editorStatus", `第 ${i + 1} 題的四個選項都必須有文字或圖片。`, "err");
     }
   }
 
@@ -550,6 +597,8 @@ $("saveQuizBtn").onclick = async () => {
       text: q.text.trim(),
       imageBase64: "",
       imageDriveId: validDriveId(q.imageDriveId),
+      videoDriveId: validDriveId(q.videoDriveId),
+      optionImageDriveIds: Array.from({length:4},(_,i)=>validDriveId(q.optionImageDriveIds?.[i])),
       options: q.options.map(o => o.trim()),
       correctIndex: Number(q.correctIndex || 0),
       timeLimit: Number(q.timeLimit || 20),
