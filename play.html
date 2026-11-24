@@ -95,6 +95,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     <div id="studentQuestion" class="card hidden" style="margin:0 0 12px">
       <div id="studentQuestionText" style="font-size:20px;font-weight:800;overflow-wrap:anywhere"></div>
       <img id="studentQuestionImg" class="hidden" style="max-width:100%;max-height:200px;object-fit:contain;margin-top:8px" alt="題目圖片">
+      <a id="studentDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
     </div>
     <div id="playStatus" class="status hidden" role="status" style="margin:0 0 12px"></div>
 
@@ -444,9 +445,14 @@ function render() {
   $("studentQuestionText").textContent = question.text;
   $("studentQuestion").classList.remove("hidden");
   const picture = $("studentQuestionImg");
-  picture.classList.toggle("hidden", !question.imageBase64);
-  if (question.imageBase64 && picture.getAttribute("src") !== question.imageBase64) picture.src = question.imageBase64;
-  if (!question.imageBase64) picture.removeAttribute("src");
+  const driveId = /^[A-Za-z0-9_-]{10,150}$/.test(question.imageDriveId || "") ? question.imageDriveId : "";
+  const src = driveId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveId)}&sz=w1000` : question.imageBase64;
+  const link = $("studentDriveLink");
+  link.classList.toggle("hidden", !driveId);
+  if (driveId) link.href = `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/view`; else link.removeAttribute("href");
+  picture.classList.toggle("hidden", !src);
+  if (src && picture.getAttribute("src") !== src) picture.src = src;
+  if (!src) picture.removeAttribute("src");
   if (room.status === "question") {
     const sending = sendingIndex === index;
     setPlaySections({ choices: !sending && !answer, waiting: sending || Boolean(answer) });

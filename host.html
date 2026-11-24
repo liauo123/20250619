@@ -150,6 +150,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
     <div class="questionBox">
       <p id="stageQuestionText" class="questionText"></p>
       <img id="stageQuestionImg" class="questionImg hidden" alt="題目圖片">
+      <a id="stageDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
     </div>
 
     <!-- 作答中計時與人數 -->
@@ -333,6 +334,7 @@ async function createRoom(quizId) {
     const quiz = quizSnapshot.data();
     if (!quiz || quiz.teacherId !== teacher.uid) throw new Error("找不到可主持的題庫。");
     if (!Array.isArray(quiz.questions) || !quiz.questions.length) throw new Error("題庫至少需要一題。");
+    if (quiz.questions.some(q => q.imageBase64)) throw new Error("請先回題庫管理頁連結 Google Drive 並重新儲存舊題庫，移轉圖片後再開始主持。");
 
     const keys = quiz.questions.map(q => Number(q.correctIndex));
     if (keys.some(key => !Number.isInteger(key) || key < 0 || key > 3) ||
@@ -341,7 +343,8 @@ async function createRoom(quizId) {
     }
     const questions = quiz.questions.map(q => ({
       text: q.text,
-      imageBase64: /^data:image\/jpeg;base64,[a-z0-9+/=]+$/i.test(q.imageBase64 || "") ? q.imageBase64 : "",
+      imageBase64: "",
+      imageDriveId: /^[A-Za-z0-9_-]{10,150}$/.test(q.imageDriveId || "") ? q.imageDriveId : "",
       options: q.options,
       timeLimit: Math.min(60, Math.max(5, Math.round(Number(q.timeLimit) || 20))),
       pointsMode: q.pointsMode === "double" ? "double" : "standard"
@@ -521,8 +524,13 @@ function renderQuestion() {
   $("qProgressBadge").textContent = "第 " + (room.currentIndex + 1) + " / " + room.questions.length + " 題";
   $("stageQuestionText").textContent = question.text;
   const image = $("stageQuestionImg");
-  image.classList.toggle("hidden", !question.imageBase64);
-  if (question.imageBase64) image.src = question.imageBase64;
+  const driveId = /^[A-Za-z0-9_-]{10,150}$/.test(question.imageDriveId || "") ? question.imageDriveId : "";
+  const src = driveId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveId)}&sz=w1000` : question.imageBase64;
+  const link = $("stageDriveLink");
+  link.classList.toggle("hidden", !driveId);
+  if (driveId) link.href = `https://drive.google.com/file/d/${encodeURIComponent(driveId)}/view`; else link.removeAttribute("href");
+  image.classList.toggle("hidden", !src);
+  if (src) { if (image.getAttribute("src") !== src) image.src = src; }
   else image.removeAttribute("src");
 
   question.options.forEach((option, index) => {
