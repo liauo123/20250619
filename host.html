@@ -88,6 +88,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     <button id="soundToggleBtn" class="btnLight" type="button">🔊 音效：開</button>
+    <button id="endAllBtn" class="btnDanger hidden" type="button">結束全部作答</button>
     <button id="endRoomBtn" class="btnDanger hidden" type="button">結束並清除房間</button>
   </div>
 </header>
@@ -390,7 +391,12 @@ function speakClassroomQuestion(index, text) {
   speakNext(0);
 }
 
+const canFinishAll = status => ["question", "grading", "reveal", "leaderboard"].includes(status);
+
 function setControls() {
+  const canFinish = canFinishAll(room?.status);
+  $("endAllBtn").classList.toggle("hidden", !canFinish);
+  $("endAllBtn").disabled = busy || !canFinish;
   $("startGameBtn").disabled = busy || !playersReady || !players.length;
   for (const id of ["revealNowBtn", "nextStepBtn", "nextQuestionBtn", "exportCsvBtn", "endRoomBtn", "finishCleanupBtn"]) {
     $(id).disabled = busy;
@@ -743,13 +749,14 @@ function standardPoints(answer, correct, startedAt) {
   return Math.round(1000 - 500 * (elapsed / STANDARD_SCORING_MS));
 }
 
-function closeQuestion() {
+function closeQuestion(finishAll = false) {
   return run(async () => {
     const index = room.currentIndex;
     const frozen = await db.runTransaction(async transaction => {
       const current = (await transaction.get(roomRef)).data();
-      if (!current || current.currentIndex !== index || !["question", "grading"].includes(current.status)) return null;
-      if (current.status === "question") transaction.update(roomRef, { status: "grading" });
+      const canGrade = finishAll ? canFinishAll(current?.status) : ["question", "grading"].includes(current?.status);
+      if (!canGrade || current.currentIndex !== index) return null;
+      if (current.status !== "grading") transaction.update(roomRef, { status: "grading" });
       return current;
     });
     if (!frozen) return;
@@ -788,14 +795,15 @@ function closeQuestion() {
 
     const remote = frozen.playMode === "remote";
     const last = index + 1 === frozen.questions.length;
-    if (remote && last) await saveFinalRanks();
+    const finished = finishAll || (remote && last);
+    if (finished) await saveFinalRanks();
     await db.runTransaction(async transaction => {
       const current = (await transaction.get(roomRef)).data();
       if (current?.status !== "grading" || current.currentIndex !== index) return;
-      if (remote && !last) {
+      if (remote && !finished) {
         transaction.update(roomRef, openQuestionFields(index + 1));
       } else {
-        transaction.update(roomRef, { status: remote ? "finished" : "reveal", revealedAnswer: correct });
+        transaction.update(roomRef, { status: finished ? "finished" : "reveal", revealedAnswer: correct });
       }
     });
   });
@@ -1030,6 +1038,7 @@ auth.onAuthStateChanged(user => {
     roomRef = room = null;
     $("headerPin").classList.add("hidden");
     $("endRoomBtn").classList.add("hidden");
+    $("endAllBtn").classList.add("hidden");
     $("retrySetupBtn").classList.add("hidden");
     $("backToEditor").classList.add("hidden");
     $("quizPickerBox").classList.add("hidden");
@@ -1057,7 +1066,8 @@ $("copyJoinUrlBtn").onclick = async () => {
   }
 };
 $("startGameBtn").onclick = () => startQuestion(0);
-$("revealNowBtn").onclick = closeQuestion;
+$("revealNowBtn").onclick = () => closeQuestion();
+$("endAllBtn").onclick = () => closeQuestion(true);
 $("nextStepBtn").onclick = advanceFromReveal;
 $("nextQuestionBtn").onclick = () => startQuestion(room.currentIndex + 1);
 $("exportCsvBtn").onclick = () => run(exportCsv);
