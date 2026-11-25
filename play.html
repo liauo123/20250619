@@ -72,7 +72,8 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 @keyframes answerPop{0%{transform:scale(.4);opacity:.3}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
 @keyframes answerShake{0%,100%{transform:translateX(0)}25%,75%{transform:translateX(-8px)}50%{transform:translateX(8px)}}
 @media(prefers-reduced-motion:reduce){.remoteFeedback #resultIcon{animation:none!important}}
-#voiceAnswerPanel{margin-top:8px}
+.answerControls{min-width:0;flex:1;display:flex;flex-direction:column}
+#voiceAnswerPanel{text-align:center;margin:0 0 8px}
 #startVoiceBtn{background:var(--purple);color:white;padding:8px 14px;min-height:42px;font-size:15px}
 #voiceAnswerStatus{font-size:13px;margin:5px 0 0}
 #studentQuestion a{font-size:12px;display:inline-block}
@@ -89,7 +90,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
   .inGame #playView.remote:not(.hidden){display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto auto 1fr;gap:6px}
   .remote .topHud,.remote #playStatus{grid-column:1/-1}
   .remote #studentQuestion{grid-column:1;grid-row:3;align-self:start}
-  .remote #padGrid,.remote #submittedBanner,.remote #resultBanner,.remote #countdownBanner{grid-column:2;grid-row:3}
+  .remote #answerControls,.remote #submittedBanner,.remote #resultBanner,.remote #countdownBanner{grid-column:2;grid-row:3}
   .inGame .padLabel{font-size:clamp(12px,3vmin,18px)}
 }
 
@@ -131,10 +132,6 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     <div id="studentQuestion" class="card hidden" style="margin:0 0 12px">
       <div id="studentQuestionText" style="font-size:20px;font-weight:800;overflow-wrap:anywhere"></div>
       <button id="readQuestionBtn" class="readQuestionBtn" type="button">🔊 朗讀題目</button>
-      <div id="voiceAnswerPanel" class="hidden">
-        <button id="startVoiceBtn" type="button">🎙 開始說答案</button>
-        <p id="voiceAnswerStatus" role="status">請說「選項一」到「選項四」，也可以說出選項文字。</p>
-      </div>
       <img id="studentQuestionImg" class="hidden" style="max-width:100%;max-height:200px;object-fit:contain;margin-top:8px" alt="題目圖片">
       <a id="studentDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
       <iframe id="studentVideo" class="studentVideo hidden" title="題目影片" allowfullscreen></iframe><a id="studentVideoLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟影片</a>
@@ -149,23 +146,29 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     </div>
 
     <!-- 四色按鍵區 -->
-    <div id="padGrid" class="padGrid hidden">
-      <button type="button" class="padBtn pad0" data-choice="0" aria-label="選項 1">
-        <span id="padLabel_0" class="padLabel"></span>
-        <img id="padImage_0" class="padImage hidden" alt="選項 1 圖片">
-      </button>
-      <button type="button" class="padBtn pad1" data-choice="1" aria-label="選項 2">
-        <span id="padLabel_1" class="padLabel"></span>
-        <img id="padImage_1" class="padImage hidden" alt="選項 2 圖片">
-      </button>
-      <button type="button" class="padBtn pad2" data-choice="2" aria-label="選項 3">
-        <span id="padLabel_2" class="padLabel"></span>
-        <img id="padImage_2" class="padImage hidden" alt="選項 3 圖片">
-      </button>
-      <button type="button" class="padBtn pad3" data-choice="3" aria-label="選項 4">
-        <span id="padLabel_3" class="padLabel"></span>
-        <img id="padImage_3" class="padImage hidden" alt="選項 4 圖片">
-      </button>
+    <div id="answerControls" class="answerControls hidden">
+      <div id="voiceAnswerPanel" class="hidden">
+        <button id="startVoiceBtn" type="button">🎙 開始說答案</button>
+        <p id="voiceAnswerStatus" role="status">請說「選項一」到「選項四」，也可以說出選項文字。</p>
+      </div>
+      <div id="padGrid" class="padGrid hidden">
+        <button type="button" class="padBtn pad0" data-choice="0" aria-label="選項 1">
+          <span id="padLabel_0" class="padLabel"></span>
+          <img id="padImage_0" class="padImage hidden" alt="選項 1 圖片">
+        </button>
+        <button type="button" class="padBtn pad1" data-choice="1" aria-label="選項 2">
+          <span id="padLabel_1" class="padLabel"></span>
+          <img id="padImage_1" class="padImage hidden" alt="選項 2 圖片">
+        </button>
+        <button type="button" class="padBtn pad2" data-choice="2" aria-label="選項 3">
+          <span id="padLabel_2" class="padLabel"></span>
+          <img id="padImage_2" class="padImage hidden" alt="選項 3 圖片">
+        </button>
+        <button type="button" class="padBtn pad3" data-choice="3" aria-label="選項 4">
+          <span id="padLabel_3" class="padLabel"></span>
+          <img id="padImage_3" class="padImage hidden" alt="選項 4 圖片">
+        </button>
+      </div>
     </div>
 
     <!-- 送出答案後等待揭曉 -->
@@ -239,6 +242,7 @@ let remoteIndex = null;
 let remoteFeedbackTimer = null;
 const REMOTE_FEEDBACK_MS = 900;
 let voiceRecognition = null;
+let voiceAutoIndex = -1;
 const VOICE_HINT = "請說「選項一」到「選項四」，也可以說出選項文字。";
 
 function clearThreeSecCountdown() {
@@ -265,6 +269,7 @@ function speakRemoteQuestion(index, text, replay = false) {
   function speakPart(part) {
     if (part === chunks.length) {
       remoteUtterance = null;
+      maybeStartVoiceAnswer();
       return;
     }
     const utterance = new SpeechSynthesisUtterance(chunks[part]);
@@ -274,6 +279,7 @@ function speakRemoteQuestion(index, text, replay = false) {
       if (remoteUtterance !== utterance) return;
       remoteUtterance = null;
       button.textContent = "🔊 點此朗讀題目";
+      maybeStartVoiceAnswer();
     };
     utterance.onend = () => {
       if (remoteUtterance === utterance) speakPart(part + 1);
@@ -289,7 +295,7 @@ function speakRemoteQuestion(index, text, replay = false) {
 }
 
 $("readQuestionBtn").onclick = () => {
-  const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
+  const index = activeQuestionIndex();
   const question = room?.questions?.[index];
   if (voiceRecognition) return;
   if (room?.playMode === "remote" && room.status === "question" && question) {
@@ -446,6 +452,7 @@ function resetSession(message, preservePin = false) {
   clearThreeSecCountdown();
   stopRemoteSpeech();
   spokenRemoteKey = "";
+  voiceAutoIndex = -1;
   clearTimeout(remoteFeedbackTimer);
   remoteFeedbackTimer = null;
   remoteIndex = null;
@@ -569,7 +576,9 @@ function watchAnswer(index) {
 
 function setPlaySections({ countdown = false, choices = false, waiting = false, result = false }) {
   $("countdownBanner").classList.toggle("hidden", !countdown);
+  $("answerControls").classList.toggle("hidden", !choices);
   $("padGrid").classList.toggle("hidden", !choices);
+  if (!choices) stopVoiceRecognition();
   $("submittedBanner").classList.toggle("hidden", !waiting);
   $("resultBanner").classList.toggle("hidden", !result);
 }
@@ -670,13 +679,6 @@ function render() {
     frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
     if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
     $("readQuestionBtn").classList.toggle("hidden", room.status !== "question" || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined");
-    const voiceEnabled = selfPaced && room.voiceAnswer === true && room.status === "question";
-    $("voiceAnswerPanel").classList.toggle("hidden", !voiceEnabled);
-    if (voiceEnabled) {
-      const supported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
-      $("startVoiceBtn").disabled = !supported || !answerReady || sendingIndex === index;
-      if (!supported) $("voiceAnswerStatus").textContent = "此瀏覽器不支援語音辨識，請點選答案。";
-    }
     if (room.status === "question" && !voiceRecognition) speakRemoteQuestion(index, question.text);
   } else {
     $("studentVideo").removeAttribute("src");
@@ -692,9 +694,10 @@ function render() {
     if (countingDown) updatePrepareCountdown();
     else clearThreeSecCountdown();
 
+    const choices = !countingDown && !waitingForNarration && !sending && !answer;
     setPlaySections({
       countdown: countingDown,
-      choices: !countingDown && !waitingForNarration && !sending && !answer,
+      choices,
       waiting: waitingForNarration || sending || Boolean(answer)
     });
 
@@ -713,6 +716,14 @@ function render() {
       button.setAttribute("aria-label", label || "選項 " + (choice + 1));
       showOptionImage($("padImage_" + choice), question.optionImageDriveIds?.[choice]);
       button.disabled = !answerReady || countingDown || waitingForNarration || sending || Boolean(answer);
+    }
+    const voiceEnabled = choices && room.voiceAnswer === true;
+    $("voiceAnswerPanel").classList.toggle("hidden", !voiceEnabled);
+    if (voiceEnabled) {
+      const supported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+      $("startVoiceBtn").disabled = !supported || !answerReady;
+      if (!supported) $("voiceAnswerStatus").textContent = "此瀏覽器不支援語音辨識，請點選答案。";
+      else maybeStartVoiceAnswer();
     }
     return;
   }
@@ -779,17 +790,38 @@ function stopVoiceRecognition() {
   try { session.abort(); } catch {}
 }
 
+function activeQuestionIndex() {
+  return room?.selfPaced ? remoteIndex : room?.currentIndex;
+}
+
+function voiceAnswerAvailable(index) {
+  return room?.voiceAnswer === true && room.status === "question" &&
+    Number.isInteger(index) && index === activeQuestionIndex() && index === answerIndex &&
+    answerReady && !answer && sendingIndex !== index &&
+    (room.playMode === "remote" || room.narrationDoneIndex === index);
+}
+
+function maybeStartVoiceAnswer() {
+  const index = activeQuestionIndex();
+  if (voiceRecognition || remoteUtterance || voiceAutoIndex === index || !voiceAnswerAvailable(index)) return;
+  startVoiceAnswer();
+}
+
 $("startVoiceBtn").onclick = () => {
   if (voiceRecognition) {
     stopVoiceRecognition();
     $("voiceAnswerStatus").textContent = VOICE_HINT;
-    return;
+  } else {
+    unlockAudio();
+    startVoiceAnswer();
   }
+};
+
+function startVoiceAnswer() {
   const SpeechInput = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const index = remoteIndex;
-  if (!SpeechInput || !room?.voiceAnswer || room.status !== "question" || !answerReady ||
-      index !== answerIndex || answer || sendingIndex === index) return;
-  unlockAudio();
+  const index = activeQuestionIndex();
+  if (!SpeechInput || !voiceAnswerAvailable(index)) return;
+  voiceAutoIndex = index;
   stopRemoteSpeech();
   const status = $("voiceAnswerStatus");
   let session;
@@ -802,7 +834,7 @@ $("startVoiceBtn").onclick = () => {
     $("startVoiceBtn").textContent = "停止辨識";
     status.textContent = "正在聽，請說出答案…";
     session.onresult = event => {
-      if (voiceRecognition !== session || remoteIndex !== index || room?.status !== "question") return;
+      if (voiceRecognition !== session || !voiceAnswerAvailable(index)) return;
       const text = event.results[event.resultIndex][0].transcript;
       const choice = recognizeChoice(text, room.questions[index].options);
       stopVoiceRecognition();
@@ -817,7 +849,7 @@ $("startVoiceBtn").onclick = () => {
       if (voiceRecognition !== session) return;
       stopVoiceRecognition();
       status.textContent = event.error === "not-allowed" || event.error === "service-not-allowed"
-        ? "無法使用麥克風，請允許麥克風權限，或點選答案。"
+        ? "請點「開始說答案」並允許麥克風，或直接點選答案。"
         : "這次沒有辨識成功，請再試一次，或點選答案。";
     };
     session.onend = () => {
@@ -828,9 +860,9 @@ $("startVoiceBtn").onclick = () => {
     session.start();
   } catch {
     stopVoiceRecognition();
-    status.textContent = "無法啟動語音辨識，請再試一次，或點選答案。";
+    status.textContent = "無法自動啟動辨識，請點「開始說答案」，或直接點選答案。";
   }
-};
+}
 
 function submissionWarning(error) {
   switch (error?.code) {
@@ -854,7 +886,7 @@ $("padGrid").onclick = event => {
 };
 
 async function submitChoice(choice) {
-  const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
+  const index = activeQuestionIndex();
   if (!Number.isInteger(choice) || choice < 0 || choice > 3 ||
       room?.status !== "question" || !answerReady || answer ||
       index !== answerIndex || sendingIndex === index) return;

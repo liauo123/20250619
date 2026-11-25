@@ -122,7 +122,7 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
         <button id="newQuizBtn" class="btnLight" type="button">＋ 清空並建立新題庫</button>
       </div>
 
-      <p id="voiceAnswerHint" class="status hidden">語音辨識模式由學生各自作答，題目與選項顯示在學生端。</p>
+      <p id="voiceAnswerHint" class="status hidden">開放作答後，學生端會自動嘗試啟動語音辨識。出題與換題依上方選擇的遊戲模式進行。</p>
       <label style="font-size:13px;font-weight:800;color:var(--muted)">題庫名稱</label>
       <input id="quizTitle" placeholder="例如：三年級自然科－認識植物隨堂搶答">
       <button id="driveConnectBtn" class="btnLight" type="button">🔗 連結 Google 雲端硬碟</button>
@@ -706,8 +706,8 @@ function listenMyQuizzes() {
       $("quizList").innerHTML = cachedNotice + docs.map(doc => {
         const d = doc.data();
         const count = Array.isArray(d.questions) ? d.questions.length : 0;
-        const modeText = d.voiceAnswer === true ? "語音辨識・個別作答" :
-          normalizePlayMode(d.playMode) === "remote" ? "遠端使用" : "教室內使用";
+        const modeText = (normalizePlayMode(d.playMode) === "remote" ? "遠端使用" : "教室內使用") +
+          (d.voiceAnswer === true ? "・語音辨識" : "");
         return `
           <div class="quizItem">
             <div class="quizTitle">${esc(d.title || "未命名題庫")}</div>
