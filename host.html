@@ -53,7 +53,6 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
 .stageVideo{display:block;width:min(100%,520px);height:min(27vh,290px);margin:8px auto;border:0}.hostOptionImage{width:clamp(44px,10vw,140px);height:clamp(42px,11vh,110px);object-fit:contain;background:white;border-radius:8px;flex-shrink:0}
 .midHUD{display:flex;justify-content:space-between;align-items:center;margin:14px 0;gap:16px}
 .timerCircle{width:86px;height:86px;border-radius:50%;background:var(--purple);color:#fff;font-size:34px;font-weight:1000;display:grid;place-items:center;box-shadow:0 8px 20px rgba(70,23,143,.28);flex:none}
-.timerCircle.urgent{background:var(--red);animation:pulse .7s infinite}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
 .ansCounter{background:#fff;padding:12px 22px;border-radius:16px;text-align:center;box-shadow:0 4px 14px rgba(15,23,42,.06)}
 .ansCounter b{display:block;font-size:32px;color:var(--purple)}
@@ -156,7 +155,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
 
     <!-- 作答中計時與人數 -->
     <div id="liveHud" class="midHUD">
-      <div id="timerCircle" class="timerCircle">20</div>
+      <div id="timerCircle" class="timerCircle">∞</div>
       <div id="livePromptText" style="font-size:18px;font-weight:800;color:var(--muted)">請學生在手機上點擊對應的選項！</div>
       <div class="ansCounter">
         <b id="answeredCount">0 / 0</b>
@@ -230,12 +229,12 @@ let spokenQuestionKey = "";
 let narration = null;
 let phaseWrite = false;
 const PREPARE_MS = 3000;
+const STANDARD_SCORING_MS = 20000;
 // narrationDoneIndex 為 -1 時念題，-2 時準備，題號相符時開放作答。
 let busy = false;
 let setupLoading = false;
 let playersReady = false;
 let answersReady = false;
-let lastSoundSecond = -1;
 let lastReveal = -1;
 let soundEnabled = true;
 let audio;
@@ -437,8 +436,8 @@ async function createRoom(quizId) {
       videoDriveId: mediaId(q.videoDriveId),
       optionImageDriveIds: Array.from({length:4},(_,i)=>mediaId(q.optionImageDriveIds?.[i])),
       options: q.options,
-      timeLimit: Math.min(60, Math.max(5, Math.round(Number(q.timeLimit) || 20))),
-      pointsMode: q.pointsMode === "double" ? "double" : "standard"
+      timeLimit: STANDARD_SCORING_MS / 1000,
+      pointsMode: "standard"
     }));
     const playMode = quiz.playMode === "remote" ? "remote" : "classroom";
     const data = {
@@ -606,16 +605,20 @@ function startQuestion(index) {
       if (current?.status !== expected || (index > 0 && index !== current.currentIndex + 1)) return;
       const question = current.questions[index];
       if (!question) throw new Error("找不到下一題。");
-      transaction.update(roomRef, {
-        status: "question",
-        currentIndex: index,
-        narrationDoneIndex: -1,
-        revealedAnswer: -1,
-        timeLimit: question.timeLimit,
-        questionStartedAt: stamp()
-      });
+      transaction.update(roomRef, openQuestionFields(index));
     });
   });
+}
+
+function openQuestionFields(index) {
+  return {
+    status: "question",
+    currentIndex: index,
+    narrationDoneIndex: -1,
+    revealedAnswer: -1,
+    timeLimit: STANDARD_SCORING_MS / 1000,
+    questionStartedAt: stamp()
+  };
 }
 
 function mediaId(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(value) ? value : ""; }
@@ -663,7 +666,7 @@ function renderQuestion() {
     $("optCount_" + index).classList.toggle("hidden", !isReveal);
   }
   $("revealNowBtn").classList.toggle("hidden", isReveal);
-  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : "⏹ 提前揭曉答案";
+  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : isClassroom ? "⏹ 提前揭曉答案" : "⏹ 結束本題作答";
   $("nextStepBtn").classList.toggle("hidden", !isReveal);
   $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
   watchQuestion(room.currentIndex);
@@ -692,48 +695,52 @@ function renderOptionCounts() {
   });
 }
 
-function startCountdown() {
+function showOpenQuestion() {
+  $("timerCircle").textContent = "∞";
+  $("livePromptText").textContent = "不限時作答，請在手機上點擊對應選項。";
+}
+
+function startPrepareCountdown() {
+  if (room.playMode === "remote" || room.narrationDoneIndex === room.currentIndex) {
+    showOpenQuestion();
+    return;
+  }
   const index = room.currentIndex;
-  const classroom = room.playMode !== "remote";
-  let attemptedAutoReveal = false;
   let attemptedOpenAt = 0;
-  lastSoundSecond = -1;
   const tick = () => {
     if (room?.status !== "question" || room.currentIndex !== index) return;
+    if (room.narrationDoneIndex === index) {
+      clearInterval(countdown);
+      showOpenQuestion();
+      return;
+    }
     const startedAt = room.questionStartedAt?.toMillis();
     const timer = $("timerCircle");
     const prompt = $("livePromptText");
-    if (classroom && room.narrationDoneIndex !== index) {
-      timer.classList.remove("urgent");
-      if (room.narrationDoneIndex !== -2 || !Number.isFinite(startedAt)) {
-        timer.textContent = "—";
-        prompt.textContent = "正在念題目，請學生等候。";
-        return;
-      }
-      const remaining = Math.max(0, Math.min(3, Math.ceil((startedAt + PREPARE_MS - Date.now()) / 1000)));
-      timer.textContent = remaining || "—";
-      prompt.textContent = "請準備作答";
-      if (!remaining && !busy && Date.now() >= attemptedOpenAt) {
-        attemptedOpenAt = Date.now() + 3000;
-        updateClassroomPhase(index, -2, index);
-      }
+    if (room.narrationDoneIndex !== -2 || !Number.isFinite(startedAt)) {
+      timer.textContent = "—";
+      prompt.textContent = "正在念題目，請學生等候。";
       return;
     }
-    if (!Number.isFinite(startedAt)) return;
-    prompt.textContent = "請學生在手機上點擊對應選項。";
-    const deadline = startedAt + room.timeLimit * 1000;
-    const remaining = Math.min(room.timeLimit, Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
-    timer.textContent = remaining;
-    timer.classList.toggle("urgent", remaining <= 5);
-    if (remaining > 0 && remaining <= 5 && remaining !== lastSoundSecond) tone(880, 0.08);
-    lastSoundSecond = remaining;
-    if (remaining === 0 && !busy && !attemptedAutoReveal) {
-      attemptedAutoReveal = true;
-      closeQuestion();
+    const remaining = Math.max(0, Math.min(3, Math.ceil((startedAt + PREPARE_MS - Date.now()) / 1000)));
+    timer.textContent = remaining || "—";
+    prompt.textContent = "請準備作答";
+    if (!remaining && !busy && Date.now() >= attemptedOpenAt) {
+      attemptedOpenAt = Date.now() + 3000;
+      updateClassroomPhase(index, -2, index);
     }
   };
   countdown = setInterval(tick, 200);
   tick();
+}
+
+function standardPoints(answer, correct, startedAt) {
+  if (answer?.choiceIndex !== correct) return 0;
+  const submittedAt = answer.submittedAt?.toMillis?.();
+  const elapsed = Number.isFinite(submittedAt) && Number.isFinite(startedAt)
+    ? Math.min(STANDARD_SCORING_MS, Math.max(0, submittedAt - startedAt))
+    : STANDARD_SCORING_MS;
+  return Math.round(1000 - 500 * (elapsed / STANDARD_SCORING_MS));
 }
 
 function closeQuestion() {
@@ -753,9 +760,7 @@ function closeQuestion() {
     ]);
     const answerByUid = new Map(answerSnapshot.docs.map(doc => [doc.data().uid, doc.data()]));
     const correct = correctIndexes[index];
-    const totalMs = frozen.timeLimit * 1000;
-    const startedAt = frozen.questionStartedAt.toMillis();
-    const multiplier = frozen.questions[index].pointsMode === "double" ? 2 : 1;
+    const startedAt = frozen.questionStartedAt?.toMillis?.();
 
     for (let start = 0; start < playerSnapshot.docs.length; start += 10) {
       const group = playerSnapshot.docs.slice(start, start + 10);
@@ -769,9 +774,7 @@ function closeQuestion() {
           if (player.lastScoredIndex >= index) continue;
           const answer = answerByUid.get(member.id);
           const passed = answer?.choiceIndex === correct;
-          const submittedAt = answer?.submittedAt?.toMillis?.() ?? startedAt + totalMs;
-          const elapsed = Math.min(totalMs, Math.max(0, submittedAt - startedAt));
-          const points = passed ? Math.round(1000 - 500 * (elapsed / totalMs)) * multiplier : 0;
+          const points = standardPoints(answer, correct, startedAt);
           transaction.update(member.ref, {
             totalScore: Number(player.totalScore || 0) + points,
             streak: passed ? Number(player.streak || 0) + 1 : 0,
@@ -783,10 +786,16 @@ function closeQuestion() {
       });
     }
 
+    const remote = frozen.playMode === "remote";
+    const last = index + 1 === frozen.questions.length;
+    if (remote && last) await saveFinalRanks();
     await db.runTransaction(async transaction => {
       const current = (await transaction.get(roomRef)).data();
-      if (current?.status === "grading" && current.currentIndex === index) {
-        transaction.update(roomRef, { status: "reveal", revealedAnswer: correct });
+      if (current?.status !== "grading" || current.currentIndex !== index) return;
+      if (remote && !last) {
+        transaction.update(roomRef, openQuestionFields(index + 1));
+      } else {
+        transaction.update(roomRef, { status: remote ? "finished" : "reveal", revealedAnswer: correct });
       }
     });
   });
@@ -807,20 +816,22 @@ async function readRanks() {
   return rankPlayers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
 }
 
+async function saveFinalRanks() {
+  const ranked = await readRanks();
+  for (let offset = 0; offset < ranked.length; offset += 15) {
+    const batch = db.batch();
+    for (const player of ranked.slice(offset, offset + 15)) {
+      batch.update(roomRef.collection("players").doc(player.id), { finalRank: player.rank });
+    }
+    await batch.commit();
+  }
+}
+
 function advanceFromReveal() {
   return run(async () => {
     const index = room.currentIndex;
     const last = index + 1 === room.questions.length;
-    if (last) {
-      const ranked = await readRanks();
-      for (let offset = 0; offset < ranked.length; offset += 15) {
-        const batch = db.batch();
-        for (const player of ranked.slice(offset, offset + 15)) {
-          batch.update(roomRef.collection("players").doc(player.id), { finalRank: player.rank });
-        }
-        await batch.commit();
-      }
-    }
+    if (last) await saveFinalRanks();
     await db.runTransaction(async transaction => {
       const current = (await transaction.get(roomRef)).data();
       if (current?.status === "reveal" && current.currentIndex === index) {
@@ -860,7 +871,7 @@ function renderRoom() {
       showView("questionView");
       renderQuestion();
       if (room.status === "question") {
-        startCountdown();
+        startPrepareCountdown();
         maybeReveal();
       }
     } else if (["leaderboard", "finished"].includes(room.status)) {

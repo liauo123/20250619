@@ -54,7 +54,6 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
 .qNum{font-weight:900;color:var(--purple);font-size:16px}
 .qTools{display:flex;gap:6px}
 .qTools button{padding:6px 10px;font-size:12px}
-.qMetaRow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
 .imgDrop{border:2px dashed #cbd5e1;border-radius:12px;padding:12px;text-align:center;background:#fff;cursor:pointer;margin:8px 0;transition:.15s}
 .imgDrop:hover,.imgDrop.dragover{border-color:var(--purple);background:#f5f3ff}
 .imgPreviewWrap{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
@@ -280,9 +279,7 @@ function createEmptyQuestion() {
     videoDriveId: "",
     optionImageDriveIds: ["", "", "", ""],
     options: ["", "", "", ""],
-    correctIndex: 0,
-    timeLimit: 20,
-    pointsMode: "standard"
+    correctIndex: 0
   };
 }
 
@@ -357,9 +354,7 @@ function normalizeQuestion(q) {
     videoDriveId: validDriveId(q.videoDriveId),
     optionImageDriveIds: Array.from({length:4}, (_,i)=>validDriveId(q.optionImageDriveIds?.[i])),
     options: Array.from({ length: 4 }, (_, index) => String(q.options?.[index] || "")),
-    correctIndex: Number.isInteger(correct) && correct >= 0 && correct <= 3 ? correct : 0,
-    timeLimit: [10, 15, 20, 30, 45, 60].includes(Number(q.timeLimit)) ? Number(q.timeLimit) : 20,
-    pointsMode: q.pointsMode === "double" ? "double" : "standard"
+    correctIndex: Number.isInteger(correct) && correct >= 0 && correct <= 3 ? correct : 0
   };
 }
 function restoreDraft() {
@@ -409,22 +404,6 @@ function renderQuestions() {
           </div>
         ` : `<button type="button" class="btnLight qPickMediaBtn" data-idx="${idx}">🖼️🎬 加入圖片／影片（也可拖曳檔案到此）</button>`}
       </div>
-      <div class="qMetaRow">
-        <div>
-          <label style="font-size:12px;color:var(--muted);font-weight:700">作答秒數</label>
-          <select class="qTimeSelect" data-idx="${idx}">
-            ${[10, 15, 20, 30, 45, 60].map(sec => `<option value="${sec}" ${Number(q.timeLimit) === sec ? "selected" : ""}>${sec} 秒</option>`).join("")}
-          </select>
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--muted);font-weight:700">計分倍率</label>
-          <select class="qPointsSelect" data-idx="${idx}">
-            <option value="standard" ${q.pointsMode !== "double" ? "selected" : ""}>標準分數（最高 1000 分）</option>
-            <option value="double" ${q.pointsMode === "double" ? "selected" : ""}>雙倍加分（最高 2000 分）</option>
-          </select>
-        </div>
-      </div>
-
       <div class="optGrid">
         ${[0, 1, 2, 3].map(optIdx => `
           <div class="optBox opt${optIdx}">
@@ -467,18 +446,6 @@ function bindQuestionEvents() {
   document.querySelectorAll(".qTextInput").forEach(el => {
     el.addEventListener("input", e => {
       questions[e.target.dataset.idx].text = e.target.value;
-      scheduleDraftSave();
-    });
-  });
-  document.querySelectorAll(".qTimeSelect").forEach(el => {
-    el.addEventListener("change", e => {
-      questions[e.target.dataset.idx].timeLimit = Number(e.target.value);
-      scheduleDraftSave();
-    });
-  });
-  document.querySelectorAll(".qPointsSelect").forEach(el => {
-    el.addEventListener("change", e => {
-      questions[e.target.dataset.idx].pointsMode = e.target.value;
       scheduleDraftSave();
     });
   });
@@ -667,8 +634,8 @@ $("saveQuizBtn").onclick = async () => {
       optionImageDriveIds: Array.from({length:4},(_,i)=>validDriveId(q.optionImageDriveIds?.[i])),
       options: q.options.map(o => o.trim()),
       correctIndex: Number(q.correctIndex || 0),
-      timeLimit: Number(q.timeLimit || 20),
-      pointsMode: q.pointsMode === "double" ? "double" : "standard"
+      timeLimit: 20,
+      pointsMode: "standard"
     })),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -778,6 +745,7 @@ async function duplicateQuiz(id) {
     if (d.questions?.some(q => q.imageBase64)) throw new Error("請先編輯並儲存舊題庫，將圖片移至 Google Drive 後再複製。");
     await db.collection("quizzes").add({
       ...d,
+      questions: Array.isArray(d.questions) ? d.questions.map(q => ({ ...q, timeLimit: 20, pointsMode: "standard" })) : [],
       playMode: normalizePlayMode(d.playMode),
       title: (d.title || "未命名題庫") + " (副本)",
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),

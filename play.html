@@ -66,6 +66,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 #studentQuestionText{font-size:clamp(14px,3.5vw,20px)!important}
 #studentQuestionImg{max-height:min(20dvh,180px)!important;margin-top:3px!important}
 .studentVideo{display:block;width:min(100%,480px);height:min(25dvh,240px);margin:3px auto;border:0}
+.readQuestionBtn{margin:4px auto;padding:5px 12px;border-radius:8px;background:#ede9fe;color:var(--purple);font-size:13px}
 #studentQuestion a{font-size:12px;display:inline-block}
 .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(min-content,1fr));gap:7px;min-height:clamp(142px,36dvh,380px)}
 .inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}
@@ -121,6 +122,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 
     <div id="studentQuestion" class="card hidden" style="margin:0 0 12px">
       <div id="studentQuestionText" style="font-size:20px;font-weight:800;overflow-wrap:anywhere"></div>
+      <button id="readQuestionBtn" class="readQuestionBtn" type="button">🔊 朗讀題目</button>
       <img id="studentQuestionImg" class="hidden" style="max-width:100%;max-height:200px;object-fit:contain;margin-top:8px" alt="題目圖片">
       <a id="studentDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
       <iframe id="studentVideo" class="studentVideo hidden" title="題目影片" allowfullscreen></iframe><a id="studentVideoLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟影片</a>
@@ -220,6 +222,7 @@ let audio;
 let generation = 0;
 let threeSecTimer = null;
 let spokenRemoteKey = "";
+let remoteUtterance = null;
 
 function clearThreeSecCountdown() {
   clearInterval(threeSecTimer);
@@ -227,22 +230,53 @@ function clearThreeSecCountdown() {
 }
 
 function stopRemoteSpeech() {
+  if (!remoteUtterance) return;
+  remoteUtterance = null;
   try { window.speechSynthesis?.cancel(); } catch {}
 }
 
-function speakRemoteQuestion(index, text) {
+function speakRemoteQuestion(index, text, replay = false) {
   const key = (roomRef?.id || "") + ":" + index;
-  if (spokenRemoteKey === key) return;
+  if (!replay && spokenRemoteKey === key) return;
   spokenRemoteKey = key;
-  const cleanText = String(text || "").trim();
-  if (!cleanText || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") return;
-  try {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(cleanText);
-    utter.lang = "zh-TW";
-    window.speechSynthesis.speak(utter);
-  } catch {}
+  stopRemoteSpeech();
+  const chunks = String(text || "").trim().match(/[^。！？!?\n]{1,42}[。！？!?]*|[。！？!?]+/gu);
+  const speech = window.speechSynthesis;
+  if (!chunks?.length || !speech || typeof SpeechSynthesisUtterance === "undefined") return;
+  const button = $("readQuestionBtn");
+  button.textContent = "🔊 朗讀題目";
+  function speakPart(part) {
+    if (part === chunks.length) {
+      remoteUtterance = null;
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(chunks[part]);
+    utterance.lang = "zh-TW";
+    remoteUtterance = utterance;
+    const onError = () => {
+      if (remoteUtterance !== utterance) return;
+      remoteUtterance = null;
+      button.textContent = "🔊 點此朗讀題目";
+    };
+    utterance.onend = () => {
+      if (remoteUtterance === utterance) speakPart(part + 1);
+    };
+    utterance.onerror = onError;
+    try {
+      speech.speak(utterance);
+    } catch {
+      onError();
+    }
+  }
+  speakPart(0);
 }
+
+$("readQuestionBtn").onclick = () => {
+  const question = room?.questions?.[room.currentIndex];
+  if (room?.playMode === "remote" && room.status === "question" && question) {
+    speakRemoteQuestion(room.currentIndex, question.text, true);
+  }
+};
 
 function updatePrepareCountdown() {
   const startedAt = room?.questionStartedAt?.toMillis();
@@ -557,6 +591,7 @@ function render() {
     const videoSrc = vid ? `https://drive.google.com/file/d/${vid}/preview` : "";
     frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
     if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
+    $("readQuestionBtn").classList.toggle("hidden", room.status !== "question" || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined");
     if (room.status === "question") speakRemoteQuestion(index, question.text);
   } else {
     $("studentVideo").removeAttribute("src");
@@ -583,7 +618,7 @@ function render() {
       $("submittedMessage").textContent = "題目念完後將倒數 3 秒並顯示 4 個選項";
     } else {
       $("submittedBanner").querySelector("h2").textContent = sending ? "正在送出答案…" : "已送出答案！";
-      $("submittedMessage").textContent = "正在等待其他同學作答與大螢幕揭曉…";
+      $("submittedMessage").textContent = isRemote ? "全員作答後會自動進入下一題或顯示最終成績。" : "正在等待其他同學作答與大螢幕揭曉…";
     }
 
     for (const button of buttons) {
