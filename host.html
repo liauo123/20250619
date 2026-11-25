@@ -57,6 +57,11 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
 .ansCounter{background:#fff;padding:12px 22px;border-radius:16px;text-align:center;box-shadow:0 4px 14px rgba(15,23,42,.06)}
 .ansCounter b{display:block;font-size:32px;color:var(--purple)}
 
+.progressTable{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left}
+.progressTable th,.progressTable td{padding:10px 4px;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}
+.progressTable th:last-child,.progressTable td:last-child{text-align:right}
+.progressTable td:last-child{font-weight:900;color:var(--purple);font-variant-numeric:tabular-nums}
+
 /* 四色選項卡 */
 .optionsGrid{display:grid;grid-template-columns:1fr;gap:14px}
 @media(min-width:720px){.optionsGrid{grid-template-columns:1fr 1fr}}
@@ -147,12 +152,20 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
       </div>
     </div>
 
-    <div class="questionBox">
+    <div id="stageQuestionBox" class="questionBox">
       <p id="stageQuestionText" class="questionText"></p>
       <img id="stageQuestionImg" class="questionImg hidden" alt="題目圖片">
       <a id="stageDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
       <iframe id="stageVideo" class="stageVideo hidden" title="題目影片" allowfullscreen></iframe><a id="stageVideoLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟影片</a>
     </div>
+
+    <section id="remoteProgress" class="card hidden" aria-labelledby="remoteProgressHeading">
+      <h2 id="remoteProgressHeading" style="margin:0 0 10px">參加人員完成題數</h2>
+      <table class="progressTable">
+        <thead><tr><th scope="col">參加人員</th><th scope="col">已完成 / 總題數</th></tr></thead>
+        <tbody id="remoteProgressRows"></tbody>
+      </table>
+    </section>
 
     <!-- 作答中計時與人數 -->
     <div id="liveHud" class="midHUD">
@@ -221,6 +234,7 @@ let room;
 let correctIndexes;
 let players = [];
 let answers = [];
+let remoteAnswers = [];
 let watchedIndex = -1;
 let stopRoom;
 let stopPlayers;
@@ -231,6 +245,7 @@ let narration = null;
 let phaseWrite = false;
 const PREPARE_MS = 3000;
 const STANDARD_SCORING_MS = 20000;
+const REMOTE_FEEDBACK_MS = 900;
 // narrationDoneIndex 為 -1 時念題，-2 時準備，題號相符時開放作答。
 let busy = false;
 let setupLoading = false;
@@ -403,7 +418,7 @@ function setControls() {
   }
 }
 
-async function run(action) {
+async function run(action, retryReveal = true) {
   if (busy) return;
   busy = true;
   setControls();
@@ -417,7 +432,7 @@ async function run(action) {
   } finally {
     busy = false;
     setControls();
-    if (succeeded && room?.status === "question") maybeReveal();
+    if (succeeded && retryReveal && room?.status === "question") maybeReveal();
   }
   return succeeded;
 }
@@ -451,6 +466,7 @@ async function createRoom(quizId) {
       quizId,
       title: quiz.title || "即時搶答",
       playMode,
+      ...(playMode === "remote" ? { selfPaced: true } : {}),
       narrationDoneIndex: -1,
       questions,
       status: "lobby",
@@ -501,6 +517,8 @@ function attachRoom(ref, keys) {
   correctIndexes = keys;
   players = [];
   playersReady = false;
+  answersReady = false;
+  remoteAnswers = [];
   watchedIndex = -1;
   lastReveal = -1;
   const url = new URL("play.html", location.href);
@@ -521,6 +539,7 @@ function attachRoom(ref, keys) {
     playersReady = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
     players = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
     if (room?.status === "lobby") renderLobby();
+    if (room?.playMode === "remote" && ["question", "grading", "reveal"].includes(room.status)) renderRemoteProgress();
     if (room?.status === "question") {
       updateAnsweredCount();
       maybeReveal();
@@ -591,12 +610,62 @@ function watchQuestion(index) {
     }, error => notice("讀取作答失敗：" + error.message));
 }
 
+function watchRemoteProgress() {
+  if (!stopAnswers) {
+    const ref = roomRef;
+    stopAnswers = ref.collection("answers").onSnapshot({ includeMetadataChanges: true }, snapshot => {
+      if (roomRef !== ref || room?.playMode !== "remote") return;
+      answersReady = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites;
+      remoteAnswers = snapshot.docs.map(doc => doc.data());
+      refreshRemoteProgress();
+      maybeReveal();
+    }, error => notice("讀取作答失敗：" + error.message));
+  }
+  refreshRemoteProgress();
+}
+
+function refreshRemoteProgress() {
+  answers = remoteAnswers.filter(answer => answer.qIndex === room.currentIndex);
+  updateAnsweredCount();
+  renderRemoteProgress();
+}
+
+function renderRemoteProgress() {
+  const rows = $("remoteProgressRows");
+  if (!playersReady || !answersReady || !players.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 2;
+    cell.textContent = !playersReady || !answersReady ? "正在同步作答進度…" : "目前尚無參加人員";
+    row.append(cell);
+    rows.replaceChildren(row);
+    return;
+  }
+
+  const total = room.questions.length;
+  const completedByPlayer = remoteAnswersByPlayer(remoteAnswers, total);
+  const order = [...players].sort((a, b) => (a.seatNumber || 99) - (b.seatNumber || 99));
+  rows.replaceChildren(...order.map(player => {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    const count = document.createElement("td");
+    name.textContent = playerLabel(player);
+    count.textContent = (completedByPlayer.get(player.id)?.size || 0) + " / " + total;
+    row.append(name, count);
+    return row;
+  }));
+}
+
 function updateAnsweredCount() {
   const answered = new Set(answers.map(answer => answer.uid));
   $("answeredCount").textContent = players.filter(player => answered.has(player.id)).length + " / " + players.length;
 }
 
 function maybeReveal() {
+  if (room?.selfPaced) {
+    maybeGradeRemote();
+    return;
+  }
   if (busy || room?.status !== "question" ||
       (room.playMode !== "remote" && room.narrationDoneIndex !== room.currentIndex) || !answersReady || !playersReady || !players.length) return;
   const answered = new Set(answers.map(answer => answer.uid));
@@ -632,7 +701,23 @@ function renderQuestion() {
   const question = room.questions[room.currentIndex];
   const isClassroom = (room.playMode || "classroom") === "classroom";
   const isReveal = room.status === "reveal";
-  $("qProgressBadge").textContent = "第 " + (room.currentIndex + 1) + " / " + room.questions.length + " 題";
+  $("qProgressBadge").textContent = room.selfPaced
+    ? "共 " + room.questions.length + " 題"
+    : "第 " + (room.currentIndex + 1) + " / " + room.questions.length + " 題";
+  $("stageQuestionBox").classList.toggle("hidden", !isClassroom);
+  $("remoteProgress").classList.toggle("hidden", isClassroom);
+  $("liveHud").classList.toggle("hidden", room.selfPaced || room.status !== "question");
+  $("revealNowBtn").classList.toggle("hidden", isReveal || room.selfPaced);
+  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : isClassroom ? "⏹ 提前揭曉答案" : "⏹ 結束本題作答";
+  $("nextStepBtn").classList.toggle("hidden", !isReveal);
+  $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
+  if (!isClassroom) {
+    $("optionsGrid").classList.add("hidden");
+    $("stageVideo").removeAttribute("src");
+    watchRemoteProgress();
+    return;
+  }
+
   $("stageQuestionText").textContent = question.text;
   const image = $("stageQuestionImg");
   const driveId = /^[A-Za-z0-9_-]{10,150}$/.test(question.imageDriveId || "") ? question.imageDriveId : "";
@@ -649,7 +734,7 @@ function renderQuestion() {
   if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
   // 教室內使用：host 只顯示題目，不顯示 4 個選項（揭曉答案時才顯示）
-  $("optionsGrid").classList.toggle("hidden", isClassroom && !isReveal);
+  $("optionsGrid").classList.toggle("hidden", !isReveal);
   $("livePromptText").textContent = isClassroom && !isReveal
     ? "教室內使用模式：主持人畫面不顯示選項，請學生在手機上作答！"
     : "請學生在手機上點擊對應的選項！";
@@ -666,15 +751,10 @@ function renderQuestion() {
     $("optCard_" + index).classList.toggle("dimmed", isReveal && !correct);
     $("optMark_" + index).textContent = correct ? "✓" : "";
   });
-  $("liveHud").classList.toggle("hidden", room.status !== "question");
   $("optionsGrid").classList.toggle("showCounts", isReveal);
   for (let index = 0; index < 4; index++) {
     $("optCount_" + index).classList.toggle("hidden", !isReveal);
   }
-  $("revealNowBtn").classList.toggle("hidden", isReveal);
-  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : isClassroom ? "⏹ 提前揭曉答案" : "⏹ 結束本題作答";
-  $("nextStepBtn").classList.toggle("hidden", !isReveal);
-  $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
   watchQuestion(room.currentIndex);
   updateAnsweredCount();
   if (isClassroom && room.status === "question" && (room.narrationDoneIndex ?? -1) === -1) {
@@ -749,7 +829,102 @@ function standardPoints(answer, correct, startedAt) {
   return Math.round(1000 - 500 * (elapsed / STANDARD_SCORING_MS));
 }
 
+function remoteAnswersByPlayer(entries, total) {
+  const playersById = new Map();
+  for (const answer of entries) {
+    if (!Number.isInteger(answer.qIndex) || answer.qIndex < 0 || answer.qIndex >= total) continue;
+    if (!playersById.has(answer.uid)) playersById.set(answer.uid, new Map());
+    playersById.get(answer.uid).set(answer.qIndex, answer);
+  }
+  return playersById;
+}
+
+function maybeGradeRemote() {
+  if (busy || room.status !== "question" || !answersReady || !playersReady || !players.length) return;
+  const index = remoteAnswersByPlayer(remoteAnswers, room.questions.length);
+  const pending = players.filter(player => index.get(player.id)?.has((player.lastScoredIndex ?? -1) + 1));
+  if (!pending.length && !players.every(player => player.lastScoredIndex === room.questions.length - 1)) return;
+  const seenPlayers = players;
+  const seenAnswers = remoteAnswers;
+  return run(async () => {
+    const ref = roomRef;
+    if (pending.length) await gradeRemoteAnswers(ref, room, index, pending, "question");
+    else await finalizeRemoteRoom(ref, "question");
+  }, false).then(succeeded => {
+    if (succeeded && room?.selfPaced && (players !== seenPlayers || remoteAnswers !== seenAnswers)) maybeGradeRemote();
+  });
+}
+
+async function gradeRemoteAnswers(ref, liveRoom, answerIndex, members, expectedStatus) {
+  for (let start = 0; start < members.length; start += 10) {
+    const group = members.slice(start, start + 10);
+    await db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      if (snapshot.data()?.status !== expectedStatus) return;
+      const fresh = await Promise.all(group.map(({ id }) => transaction.get(ref.collection("players").doc(id))));
+      for (const member of fresh) {
+        if (!member.exists) continue;
+        const player = member.data();
+        const answers = answerIndex.get(member.id);
+        let index = (player.lastScoredIndex ?? -1) + 1;
+        if (!answers?.has(index)) continue;
+        let totalScore = Number(player.totalScore || 0);
+        let correctCount = Number(player.correctCount || 0);
+        let streak = Number(player.streak || 0);
+        let lastPoints = 0;
+        while (answers.has(index)) {
+          const answer = answers.get(index);
+          const previousTime = answers.get(index - 1)?.submittedAt?.toMillis?.();
+          const startedAt = index === 0 ? liveRoom.questionStartedAt?.toMillis?.() :
+            Number.isFinite(previousTime) ? previousTime + REMOTE_FEEDBACK_MS : undefined;
+          const correct = correctIndexes[index];
+          const passed = answer.choiceIndex === correct;
+          lastPoints = standardPoints(answer, correct, startedAt);
+          totalScore += lastPoints;
+          correctCount += Number(passed);
+          streak = passed ? streak + 1 : 0;
+          index++;
+        }
+        transaction.update(member.ref, {
+          totalScore, correctCount, streak, lastPoints, lastScoredIndex: index - 1
+        });
+      }
+    });
+  }
+}
+
+function finishRemoteRoom() {
+  return run(async () => {
+    const ref = roomRef;
+    const frozen = await db.runTransaction(async transaction => {
+      const current = (await transaction.get(ref)).data();
+      if (!current?.selfPaced || !["question", "grading"].includes(current.status)) return null;
+      if (current.status === "question") transaction.update(ref, { status: "grading" });
+      return current;
+    });
+    if (!frozen) return;
+    const [answerSnapshot, memberSnapshot] = await Promise.all([
+      ref.collection("answers").get({ source: "server" }),
+      ref.collection("players").get({ source: "server" })
+    ]);
+    const index = remoteAnswersByPlayer(answerSnapshot.docs.map(doc => doc.data()), frozen.questions.length);
+    await gradeRemoteAnswers(ref, frozen, index, memberSnapshot.docs, "grading");
+    await finalizeRemoteRoom(ref, "grading");
+  });
+}
+
+async function finalizeRemoteRoom(ref, expectedStatus) {
+  await saveFinalRanks();
+  await db.runTransaction(async transaction => {
+    const current = (await transaction.get(ref)).data();
+    if (current?.selfPaced && current.status === expectedStatus) {
+      transaction.update(ref, { status: "finished" });
+    }
+  });
+}
+
 function closeQuestion(finishAll = false) {
+  if (room?.selfPaced) return finishRemoteRoom();
   return run(async () => {
     const index = room.currentIndex;
     const frozen = await db.runTransaction(async transaction => {

@@ -67,6 +67,11 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 #studentQuestionImg{max-height:min(20dvh,180px)!important;margin-top:3px!important}
 .studentVideo{display:block;width:min(100%,480px);height:min(25dvh,240px);margin:3px auto;border:0}
 .readQuestionBtn{margin:4px auto;padding:5px 12px;border-radius:8px;background:#ede9fe;color:var(--purple);font-size:13px}
+.remoteFeedback.bannerCorrect #resultIcon{animation:answerPop .55s ease-out}
+.remoteFeedback.bannerWrong #resultIcon{animation:answerShake .45s ease-in-out}
+@keyframes answerPop{0%{transform:scale(.4);opacity:.3}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
+@keyframes answerShake{0%,100%{transform:translateX(0)}25%,75%{transform:translateX(-8px)}50%{transform:translateX(8px)}}
+@media(prefers-reduced-motion:reduce){.remoteFeedback #resultIcon{animation:none!important}}
 #studentQuestion a{font-size:12px;display:inline-block}
 .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(min-content,1fr));gap:7px;min-height:clamp(142px,36dvh,380px)}
 .inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}
@@ -223,6 +228,9 @@ let generation = 0;
 let threeSecTimer = null;
 let spokenRemoteKey = "";
 let remoteUtterance = null;
+let remoteIndex = null;
+let remoteFeedbackTimer = null;
+const REMOTE_FEEDBACK_MS = 900;
 
 function clearThreeSecCountdown() {
   clearInterval(threeSecTimer);
@@ -272,9 +280,10 @@ function speakRemoteQuestion(index, text, replay = false) {
 }
 
 $("readQuestionBtn").onclick = () => {
-  const question = room?.questions?.[room.currentIndex];
+  const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
+  const question = room?.questions?.[index];
   if (room?.playMode === "remote" && room.status === "question" && question) {
-    speakRemoteQuestion(room.currentIndex, question.text, true);
+    speakRemoteQuestion(index, question.text, true);
   }
 };
 
@@ -426,6 +435,9 @@ function resetSession(message, preservePin = false) {
   clearThreeSecCountdown();
   stopRemoteSpeech();
   spokenRemoteKey = "";
+  clearTimeout(remoteFeedbackTimer);
+  remoteFeedbackTimer = null;
+  remoteIndex = null;
   stopRoom?.();
   stopPlayer?.();
   stopAnswer?.();
@@ -460,7 +472,7 @@ function connect(ref) {
       return;
     }
     room = snapshot.data();
-    if (["question", "grading", "reveal", "leaderboard"].includes(room.status)) watchAnswer(room.currentIndex);
+    if (!room.selfPaced && ["question", "grading", "reveal", "leaderboard"].includes(room.status)) watchAnswer(room.currentIndex);
     render();
   }, error => resetSession("無法讀取房間：" + error.message, true));
 
@@ -532,7 +544,7 @@ function watchAnswer(index) {
   answer = null;
   playStatus();
   stopAnswer = currentAnswerRef(index).onSnapshot({ includeMetadataChanges: true }, snapshot => {
-    if (answerIndex !== index) return;
+    if (answerIndex !== index || (room?.selfPaced && snapshot.metadata.fromCache)) return;
     if (snapshot.metadata.hasPendingWrites) return;
     answerReady = !snapshot.metadata.fromCache;
     answer = snapshot.data() || null;
@@ -549,6 +561,36 @@ function setPlaySections({ countdown = false, choices = false, waiting = false, 
   $("resultBanner").classList.toggle("hidden", !result);
 }
 
+function showRemoteFeedback(index) {
+  if (feedbackIndex === index) return;
+  feedbackIndex = index;
+  stopRemoteSpeech();
+  const correct = player.lastPoints > 0;
+  setPlaySections({ result: true });
+  $("studentQuestion").classList.add("hidden");
+  const banner = $("resultBanner");
+  banner.className = "fullBanner remoteFeedback " + (correct ? "bannerCorrect" : "bannerWrong");
+  $("resultIcon").textContent = correct ? "✓" : "✕";
+  $("resultTitle").textContent = correct ? "答對了！" : "答錯了";
+  $("resultPoints").textContent = "+" + (player.lastPoints || 0) + " 分";
+  $("resultSub").textContent = index + 1 === room.questions.length ? "已完成最後一題" : "即將進入下一題";
+  showOptionImage($("resultImage"), "");
+  playFeedback(correct);
+  remoteFeedbackTimer = setTimeout(() => {
+    remoteFeedbackTimer = null;
+    remoteIndex = index + 1;
+    render();
+  }, REMOTE_FEEDBACK_MS);
+}
+
+function remoteWaiting(title, message) {
+  stopRemoteSpeech();
+  $("studentQuestion").classList.add("hidden");
+  setPlaySections({ waiting: true });
+  $("submittedBanner").querySelector("h2").textContent = title;
+  $("submittedMessage").textContent = message;
+}
+
 function render() {
   if (!room || !player) return;
   const label = player.seatNumber && player.displayName !== seatLabel(player.seatNumber) ?
@@ -559,6 +601,12 @@ function render() {
     showView("lobbyView");
     return;
   }
+  if (room.selfPaced && remoteFeedbackTimer !== null) return;
+  if (room.selfPaced && remoteIndex !== null && player.lastScoredIndex === remoteIndex &&
+      (answer || sendingIndex === remoteIndex)) {
+    showRemoteFeedback(remoteIndex);
+    return;
+  }
   if (room.status === "finished") {
     $("finalRankText").textContent = player.finalRank ? "第 " + player.finalRank + " 名" : "正在同步名次…";
     $("finalScoreText").textContent = "總積分 " + player.totalScore + " 分";
@@ -566,12 +614,27 @@ function render() {
     return;
   }
 
-  const index = room.currentIndex;
-  const question = room.questions[index];
   const isRemote = room.playMode === "remote";
+  const selfPaced = isRemote && room.selfPaced;
+  if (selfPaced && (remoteIndex === null || player.lastScoredIndex > remoteIndex)) {
+    remoteIndex = (player.lastScoredIndex ?? -1) + 1;
+  }
+  const index = selfPaced ? remoteIndex : room.currentIndex;
+  const question = room.questions[index];
   $("playView").classList.toggle("remote", isRemote);
   showView("playView");
-  $("playQNum").textContent = "第 " + (index + 1) + " / " + room.questions.length + " 題";
+  $("playQNum").textContent = "第 " + Math.min(index + 1, room.questions.length) + " / " + room.questions.length + " 題";
+  if (selfPaced) {
+    if (!question || room.status !== "question") {
+      remoteWaiting(question ? "正在結算成績…" : "已完成全部題目！", "請稍候，總成績公布後會自動顯示。");
+      return;
+    }
+    watchAnswer(index);
+    if (answer) {
+      remoteWaiting("已送出答案！", "正在確認本題結果…");
+      return;
+    }
+  }
   if (!(room.status === "grading" && player.lastScoredIndex === index)) $("playScore").textContent = player.totalScore + " 分";
 
   // 遠端模式顯示題目語音、文字、圖片、影片；教室內模式由大螢幕顯示題目，學生端專注於倒數與 4 個選項
@@ -665,8 +728,10 @@ function render() {
 
 $("padGrid").onclick = async event => {
   const button = event.target.closest(".padBtn");
-  if (!button || button.disabled || room?.status !== "question" || !answerReady || answer || sendingIndex === room.currentIndex) return;
-  const index = room.currentIndex;
+  const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
+  if (!button || button.disabled || room?.status !== "question" || !answerReady || answer ||
+      index !== answerIndex || sendingIndex === index) return;
+  unlockAudio();
   const activeSession = generation;
   const ref = currentAnswerRef(index);
   sendingIndex = index;
@@ -676,13 +741,21 @@ $("padGrid").onclick = async event => {
   try {
     const data = { uid: student.uid, qIndex: index, choiceIndex: Number(button.dataset.choice), submittedAt: stamp() };
     const activeRoom = roomRef;
+    const activeMember = playerRef;
     const savedAnswer = await db.runTransaction(async transaction => {
       const [roomSnapshot, stored] = await Promise.all([transaction.get(activeRoom), transaction.get(ref)]);
       if (stored.exists) return stored.data();
       const latest = roomSnapshot.data();
-      if (latest?.status !== "question" || latest.currentIndex !== index ||
-          (latest.playMode !== "remote" && latest.narrationDoneIndex !== index)) {
+      if (latest?.status !== "question" ||
+          (latest.selfPaced ? latest.playMode !== "remote" || !latest.questions?.[index] :
+            latest.currentIndex !== index || (latest.playMode !== "remote" && latest.narrationDoneIndex !== index))) {
         throw new Error("本題尚未開放作答或已經結束。");
+      }
+      if (latest.selfPaced) {
+        const member = await transaction.get(activeMember);
+        if (!member.exists || (member.data().lastScoredIndex ?? -1) + 1 !== index) {
+          throw new Error("作答進度已更新，請稍候同步。");
+        }
       }
       transaction.set(ref, data);
       return data;
