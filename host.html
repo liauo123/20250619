@@ -157,7 +157,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
     <!-- 作答中計時與人數 -->
     <div id="liveHud" class="midHUD">
       <div id="timerCircle" class="timerCircle">20</div>
-      <div id="livePromptText" style="font-size:18px;font-weight:800;color:var(--muted)">請學生在手機上點擊對應顏色的幾何按鈕！</div>
+      <div id="livePromptText" style="font-size:18px;font-weight:800;color:var(--muted)">請學生在手機上點擊對應的選項！</div>
       <div class="ansCounter">
         <b id="answeredCount">0 / 0</b>
         <span style="font-size:13px;color:var(--muted)">已作答人數</span>
@@ -167,22 +167,18 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
     <!-- 四色選項顯示 -->
     <div id="optionsGrid" class="optionsGrid">
       <div id="optCard_0" class="optCard opt0">
-        <span aria-hidden="true">▲</span>
         <span id="optText_0"></span><span id="optMark_0" class="optMark"></span>
         <span id="optCount_0" class="optCount hidden"></span>
       </div>
       <div id="optCard_1" class="optCard opt1">
-        <span aria-hidden="true">◆</span>
         <span id="optText_1"></span><span id="optMark_1" class="optMark"></span>
         <span id="optCount_1" class="optCount hidden"></span>
       </div>
       <div id="optCard_2" class="optCard opt2">
-        <span aria-hidden="true">●</span>
         <span id="optText_2"></span><span id="optMark_2" class="optMark"></span>
         <span id="optCount_2" class="optCount hidden"></span>
       </div>
       <div id="optCard_3" class="optCard opt3">
-        <span aria-hidden="true">■</span>
         <span id="optText_3"></span><span id="optMark_3" class="optMark"></span>
         <span id="optCount_3" class="optCount hidden"></span>
       </div>
@@ -231,6 +227,7 @@ let stopPlayers;
 let stopAnswers;
 let countdown;
 let spokenQuestionKey = "";
+let narration = null;
 let phaseWrite = false;
 const PREPARE_MS = 3000;
 // narrationDoneIndex 為 -1 時念題，-2 時準備，題號相符時開放作答。
@@ -247,7 +244,7 @@ function showView(id) {
   if (id !== "questionView") {
     $("stageVideo").removeAttribute("src");
     $("stageVideo").classList.add("hidden");
-    try { window.speechSynthesis?.cancel(); } catch {}
+    stopClassroomSpeech();
   }
   for (const view of ["setupView", "lobbyView", "questionView", "leaderboardView"]) {
     $(view).classList.toggle("hidden", view !== id);
@@ -311,34 +308,87 @@ async function updateClassroomPhase(index, expected, next, ref = roomRef) {
   }
 }
 
+function stopClassroomSpeech() {
+  if (!narration) return;
+  clearTimeout(narration.startTimer);
+  narration = null;
+  try { window.speechSynthesis?.cancel(); } catch {}
+}
+
+function splitNarration(text) {
+  const chunks = [];
+  let chunk = "";
+  let length = 0;
+  for (const char of text) {
+    chunk += char;
+    length++;
+    if (length >= 42 || /[。！？；!?\n]/.test(char)) {
+      if (chunk.trim()) chunks.push(chunk);
+      chunk = "";
+      length = 0;
+    }
+  }
+  if (chunk.trim()) chunks.push(chunk);
+  return chunks;
+}
+
 function speakClassroomQuestion(index, text) {
   const ref = roomRef;
   const key = (ref?.id || "") + ":" + index;
   if (spokenQuestionKey === key) return;
   spokenQuestionKey = key;
-  const cleanText = String(text || "").trim();
-  if (!soundEnabled || !cleanText || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+  stopClassroomSpeech();
+
+  const chunks = splitNarration(String(text || "").trim());
+  const synth = window.speechSynthesis;
+  if (!soundEnabled || !chunks.length || !synth || typeof SpeechSynthesisUtterance === "undefined") {
     updateClassroomPhase(index, -1, -2, ref);
     return;
   }
-  try {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(cleanText);
-    utter.lang = "zh-TW";
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(fallbackTimer);
-      updateClassroomPhase(index, -1, -2, ref);
-    };
-    const fallbackTimer = setTimeout(finish, Math.min(10000, Math.max(1200, cleanText.length * 160)));
-    utter.onend = finish;
-    utter.onerror = finish;
-    window.speechSynthesis.speak(utter);
-  } catch {
+
+  const session = { utterance: null, startTimer: null };
+  narration = session;
+  const isCurrent = () => narration === session && roomRef === ref &&
+    room?.status === "question" && room.currentIndex === index && (room.narrationDoneIndex ?? -1) === -1;
+  const fail = () => {
+    if (!isCurrent()) return;
+    stopClassroomSpeech();
+    notice("瀏覽器未能完成念題，請主持人補充題目內容。");
     updateClassroomPhase(index, -1, -2, ref);
+  };
+
+  function speakNext(part) {
+    if (!isCurrent()) return;
+    if (part === chunks.length) {
+      narration = null;
+      updateClassroomPhase(index, -1, -2, ref);
+      return;
+    }
+    try {
+      const utter = new SpeechSynthesisUtterance(chunks[part]);
+      utter.lang = "zh-TW";
+      session.utterance = utter;
+      const isCurrentPart = () => isCurrent() && session.utterance === utter;
+      const clearStartTimer = () => {
+        if (isCurrentPart()) clearTimeout(session.startTimer);
+      };
+      utter.onstart = clearStartTimer;
+      utter.onboundary = clearStartTimer;
+      utter.onend = () => {
+        if (!isCurrentPart()) return;
+        clearStartTimer();
+        speakNext(part + 1);
+      };
+      utter.onerror = () => { if (isCurrentPart()) fail(); };
+      // 只限制等待語音啟動的時間。開始念題後，等該段實際念完再進入下一段。
+      session.startTimer = setTimeout(() => { if (isCurrentPart()) fail(); }, 8000);
+      synth.speak(utter);
+    } catch {
+      fail();
+    }
   }
+
+  speakNext(0);
 }
 
 function setControls() {
@@ -430,7 +480,7 @@ async function createRoom(quizId) {
 
 function resetListeners() {
   clearInterval(countdown);
-  try { window.speechSynthesis?.cancel(); } catch {}
+  stopClassroomSpeech();
   spokenQuestionKey = "";
   stopRoom?.();
   stopPlayers?.();
@@ -593,7 +643,7 @@ function renderQuestion() {
   $("optionsGrid").classList.toggle("hidden", isClassroom && !isReveal);
   $("livePromptText").textContent = isClassroom && !isReveal
     ? "教室內使用模式：主持人畫面不顯示選項，請學生在手機上作答！"
-    : "請學生在手機上點擊對應顏色的幾何按鈕！";
+    : "請學生在手機上點擊對應的選項！";
 
   question.options.forEach((option, index) => {
     $("optText_" + index).textContent = option;
@@ -798,6 +848,7 @@ function renderLeaderboard(ranked, final, index) {
 
 let renderedState = "";
 function renderRoom() {
+  if (room.status !== "question" || (room.narrationDoneIndex ?? -1) !== -1) stopClassroomSpeech();
   const state = room.status + ":" + room.currentIndex;
   if (state !== renderedState) {
     renderedState = state;
@@ -982,7 +1033,7 @@ $("soundToggleBtn").onclick = () => {
   soundEnabled = !soundEnabled;
   $("soundToggleBtn").textContent = soundEnabled ? "🔊 音效：開" : "🔇 音效：關";
   if (!soundEnabled) {
-    try { window.speechSynthesis?.cancel(); } catch {}
+    stopClassroomSpeech();
     if (room?.status === "question") updateClassroomPhase(room.currentIndex, -1, -2);
   }
 };
