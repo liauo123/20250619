@@ -42,6 +42,12 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
 .status.ok{background:#dcfce7;color:#166534}.status.err{background:#fee2e2;color:#991b1b}
 .hidden{display:none!important}
 
+.editorTitleRow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.editorTitleLeft{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.modeChecks{display:inline-flex;align-items:center;gap:10px;background:#f5f3ff;border:1px solid #ddd6fe;padding:6px 12px;border-radius:10px}
+.modeCheckLabel{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:800;color:var(--purple);cursor:pointer;user-select:none}
+.modeCheckLabel input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:var(--purple);cursor:pointer}
+
 /* 題目卡片 */
 .qCard{border:2px solid #e2e8f0;border-radius:14px;padding:16px;margin:14px 0;background:#fafbfe;position:relative}
 .qHead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -105,8 +111,14 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
   <div id="appArea" class="workspace hidden">
     <!-- 左側：題庫編輯器 -->
     <section class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-        <h2 id="editorHeading" style="margin:0;color:var(--purple)">建立新題庫</h2>
+      <div class="editorTitleRow">
+        <div class="editorTitleLeft">
+          <h2 id="editorHeading" style="margin:0;color:var(--purple)">編輯雲端題庫</h2>
+          <div class="modeChecks" role="group" aria-label="作答顯示模式">
+            <label class="modeCheckLabel"><input id="modeClassroom" type="checkbox" checked> 教室內使用</label>
+            <label class="modeCheckLabel"><input id="modeRemote" type="checkbox"> 遠端使用</label>
+          </div>
+        </div>
         <button id="newQuizBtn" class="btnLight" type="button">＋ 清空並建立新題庫</button>
       </div>
 
@@ -158,6 +170,7 @@ const SHAPES = ["▲", "◆", "●", "■"];
 
 let currentUser = null;
 let editingQuizId = "";
+let playMode = "classroom";
 let questions = [];
 let quizzesUnsub = null;
 let draftTimer = null;
@@ -232,6 +245,28 @@ async function uploadDriveMedia(bytes, mime, extension, user, version) {
   return file.id;
 }
 
+function normalizePlayMode(mode) {
+  return mode === "remote" ? "remote" : "classroom";
+}
+
+function applyPlayModeUI(mode) {
+  playMode = normalizePlayMode(mode);
+  $("modeClassroom").checked = playMode === "classroom";
+  $("modeRemote").checked = playMode === "remote";
+}
+
+function setPlayMode(mode, syncDraft = true) {
+  applyPlayModeUI(mode);
+  if (syncDraft) scheduleDraftSave();
+}
+
+$("modeClassroom").addEventListener("change", () => {
+  setPlayMode($("modeClassroom").checked ? "classroom" : "remote");
+});
+$("modeRemote").addEventListener("change", () => {
+  setPlayMode($("modeRemote").checked ? "remote" : "classroom");
+});
+
 function setStatus(id, msg, type = "") {
   const el = $(id);
   el.textContent = msg;
@@ -292,6 +327,7 @@ function saveDraft() {
   try {
     localStorage.setItem(draftKey(), JSON.stringify({
       editingQuizId,
+      playMode,
       title: $("quizTitle").value,
       questions
     }));
@@ -332,9 +368,10 @@ function restoreDraft() {
     const data = JSON.parse(raw);
     if (!data || !Array.isArray(data.questions) || !data.questions.length) return false;
     editingQuizId = data.editingQuizId || "";
+    applyPlayModeUI(data.playMode);
     $("quizTitle").value = data.title || "";
     questions = data.questions.map(normalizeQuestion);
-    $("editorHeading").textContent = editingQuizId ? "編輯雲端題庫" : "建立新題庫";
+    $("editorHeading").textContent = "編輯雲端題庫";
     return true;
   } catch (e) {
     return false;
@@ -544,7 +581,8 @@ $("addQuestionBtn").onclick = () => {
 $("newQuizBtn").onclick = () => {
   editorVersion++;
   editingQuizId = "";
-  $("editorHeading").textContent = "建立新題庫";
+  applyPlayModeUI("classroom");
+  $("editorHeading").textContent = "編輯雲端題庫";
   $("quizTitle").value = "";
   questions = [createEmptyQuestion()];
   renderQuestions();
@@ -592,6 +630,7 @@ $("saveQuizBtn").onclick = async () => {
     teacherId: currentUser.uid,
     teacherEmail: currentUser.email || "",
     title,
+    playMode,
     questionCount: questions.length,
     questions: questions.map(q => ({
       text: q.text.trim(),
@@ -657,10 +696,11 @@ function listenMyQuizzes() {
       $("quizList").innerHTML = cachedNotice + docs.map(doc => {
         const d = doc.data();
         const count = Array.isArray(d.questions) ? d.questions.length : 0;
+        const modeText = normalizePlayMode(d.playMode) === "remote" ? "遠端使用" : "教室內使用";
         return `
           <div class="quizItem">
             <div class="quizTitle">${esc(d.title || "未命名題庫")}</div>
-            <div class="quizMeta">共 ${count} 題</div>
+            <div class="quizMeta">共 ${count} 題・${modeText}</div>
             <div class="quizActions">
               <a class="btnLink btnGreen" href="host.html?quiz=${doc.id}" target="_blank" rel="noopener">▶ 開始主持</a>
               <button type="button" class="btnLight" onclick="loadQuizToEditor('${doc.id}')">編輯</button>
@@ -682,6 +722,7 @@ window.loadQuizToEditor = async id => {
     if (!snap.exists || editorVersion !== version) return;
     const d = snap.data();
     editingQuizId = snap.id;
+    applyPlayModeUI(d.playMode);
     $("editorHeading").textContent = "編輯雲端題庫";
     $("quizTitle").value = d.title || "";
     questions = Array.isArray(d.questions) ? d.questions.map(normalizeQuestion) : [];
@@ -703,6 +744,7 @@ window.duplicateQuiz = async id => {
     if (d.questions?.some(q => q.imageBase64)) throw new Error("請先編輯並儲存舊題庫，將圖片移至 Google Drive 後再複製。");
     await db.collection("quizzes").add({
       ...d,
+      playMode: normalizePlayMode(d.playMode),
       title: (d.title || "未命名題庫") + " (副本)",
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -738,8 +780,9 @@ auth.onAuthStateChanged(user => {
     $("teacherEmail").textContent = user.email || "";
     if (!restoreDraft()) {
       editingQuizId = "";
+      applyPlayModeUI("classroom");
       $("quizTitle").value = "";
-      $("editorHeading").textContent = "建立新題庫";
+      $("editorHeading").textContent = "編輯雲端題庫";
       questions = [createEmptyQuestion()];
     }
     renderQuestions();

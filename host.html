@@ -158,7 +158,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
     <!-- 作答中計時與人數 -->
     <div id="liveHud" class="midHUD">
       <div id="timerCircle" class="timerCircle">20</div>
-      <div style="font-size:18px;font-weight:800;color:var(--muted)">請學生在手機上點擊對應顏色的幾何按鈕！</div>
+      <div id="livePromptText" style="font-size:18px;font-weight:800;color:var(--muted)">請學生在手機上點擊對應顏色的幾何按鈕！</div>
       <div class="ansCounter">
         <b id="answeredCount">0 / 0</b>
         <span style="font-size:13px;color:var(--muted)">已作答人數</span>
@@ -190,7 +190,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
     </div>
 
     <!-- 四色選項顯示 -->
-    <div class="optionsGrid">
+    <div id="optionsGrid" class="optionsGrid">
       <div id="optCard_0" class="optCard opt0">
         <span aria-hidden="true">▲</span>
         <span id="optText_0"></span><span id="optMark_0" class="optMark"></span>
@@ -251,6 +251,7 @@ let stopRoom;
 let stopPlayers;
 let stopAnswers;
 let countdown;
+let spokenQuestionKey = "";
 let busy = false;
 let setupLoading = false;
 let playersReady = false;
@@ -261,7 +262,11 @@ let soundEnabled = true;
 let audio;
 
 function showView(id) {
-  if (id !== "questionView") { $("stageVideo").removeAttribute("src"); $("stageVideo").classList.add("hidden"); }
+  if (id !== "questionView") {
+    $("stageVideo").removeAttribute("src");
+    $("stageVideo").classList.add("hidden");
+    try { window.speechSynthesis?.cancel(); } catch {}
+  }
   for (const view of ["setupView", "lobbyView", "questionView", "leaderboardView"]) {
     $(view).classList.toggle("hidden", view !== id);
   }
@@ -303,6 +308,41 @@ function tone(frequency, duration) {
   oscillator.connect(gain).connect(audio.destination);
   oscillator.start(now);
   oscillator.stop(now + duration);
+}
+
+function markNarrationDone(index) {
+  if (!roomRef || !room || room.playMode !== "classroom" || room.status !== "question" || room.currentIndex !== index) return;
+  if (room.narrationDoneIndex === index) return;
+  roomRef.update({ narrationDoneIndex: index }).catch(() => {});
+}
+
+function speakClassroomQuestion(index, text) {
+  const key = (roomRef?.id || "") + ":" + index;
+  if (spokenQuestionKey === key) return;
+  spokenQuestionKey = key;
+  const cleanText = String(text || "").trim();
+  if (!soundEnabled || !cleanText || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+    markNarrationDone(index);
+    return;
+  }
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(cleanText);
+    utter.lang = "zh-TW";
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(fallbackTimer);
+      markNarrationDone(index);
+    };
+    const fallbackTimer = setTimeout(finish, Math.min(10000, Math.max(1200, cleanText.length * 160)));
+    utter.onend = finish;
+    utter.onerror = finish;
+    window.speechSynthesis.speak(utter);
+  } catch {
+    markNarrationDone(index);
+  }
 }
 
 function setControls() {
@@ -354,10 +394,13 @@ async function createRoom(quizId) {
       timeLimit: Math.min(60, Math.max(5, Math.round(Number(q.timeLimit) || 20))),
       pointsMode: q.pointsMode === "double" ? "double" : "standard"
     }));
+    const playMode = quiz.playMode === "remote" ? "remote" : "classroom";
     const data = {
       teacherId: teacher.uid,
       quizId,
       title: quiz.title || "即時搶答",
+      playMode,
+      narrationDoneIndex: -1,
       questions,
       status: "lobby",
       currentIndex: 0,
@@ -391,6 +434,8 @@ async function createRoom(quizId) {
 
 function resetListeners() {
   clearInterval(countdown);
+  try { window.speechSynthesis?.cancel(); } catch {}
+  spokenQuestionKey = "";
   stopRoom?.();
   stopPlayers?.();
   stopAnswers?.();
@@ -443,7 +488,8 @@ function attachRoom(ref, keys) {
 }
 
 function renderLobby() {
-  $("lobbyQuizTitle").textContent = room.title + "（共 " + room.questions.length + " 題）";
+  const modeLabel = room.playMode === "remote" ? "遠端使用" : "教室內使用";
+  $("lobbyQuizTitle").textContent = room.title + "（共 " + room.questions.length + " 題・" + modeLabel + "）";
   $("lobbyPlayerCount").textContent = "目前等待人數：" + players.length + " 人";
   const order = [...players].sort((a, b) => (a.seatNumber || 99) - (b.seatNumber || 99));
   $("playerCloud").replaceChildren(...order.map(player => {
@@ -516,6 +562,7 @@ function startQuestion(index) {
       transaction.update(roomRef, {
         status: "question",
         currentIndex: index,
+        narrationDoneIndex: -1,
         revealedAnswer: -1,
         timeLimit: question.timeLimit,
         questionStartedAt: stamp()
@@ -527,6 +574,8 @@ function startQuestion(index) {
 function mediaId(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(value) ? value : ""; }
 function renderQuestion() {
   const question = room.questions[room.currentIndex];
+  const isClassroom = (room.playMode || "classroom") === "classroom";
+  const isReveal = room.status === "reveal";
   $("qProgressBadge").textContent = "第 " + (room.currentIndex + 1) + " / " + room.questions.length + " 題";
   $("stageQuestionText").textContent = question.text;
   const image = $("stageQuestionImg");
@@ -543,6 +592,12 @@ function renderQuestion() {
   frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
   if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
+  // 教室內使用：host 只顯示題目，不顯示 4 個選項（揭曉答案時才顯示）
+  $("optionsGrid").classList.toggle("hidden", isClassroom && !isReveal);
+  $("livePromptText").textContent = isClassroom && !isReveal
+    ? "教室內作答模式：題目朗讀完畢後，學生手機倒數 3 秒將顯示 4 個選項！"
+    : "請學生在手機上點擊對應顏色的幾何按鈕！";
+
   question.options.forEach((option, index) => {
     $("optText_" + index).textContent = option;
     const card = $("optCard_" + index), id = mediaId(question.optionImageDriveIds?.[index]);
@@ -550,21 +605,23 @@ function renderQuestion() {
     if (!picture) { picture = document.createElement("img"); picture.className = "hostOptionImage hidden"; picture.alt = `選項 ${index+1} 圖片`; card.insertBefore(picture, $("optText_" + index)); }
     picture.classList.toggle("hidden", !id);
     if (id) { const url = `https://drive.google.com/thumbnail?id=${id}&sz=w540`; if (picture.getAttribute("src") !== url) picture.src = url; } else picture.removeAttribute("src");
-    const isReveal = room.status === "reveal";
     const correct = isReveal && index === room.revealedAnswer;
     $("optCard_" + index).classList.toggle("correctGlow", correct);
     $("optCard_" + index).classList.toggle("dimmed", isReveal && !correct);
     $("optMark_" + index).textContent = correct ? "✓" : "";
   });
   $("liveHud").classList.toggle("hidden", room.status !== "question");
-  $("revealChart").classList.toggle("hidden", room.status !== "reveal");
-  $("revealNowBtn").classList.toggle("hidden", room.status === "reveal");
+  $("revealChart").classList.toggle("hidden", !isReveal);
+  $("revealNowBtn").classList.toggle("hidden", isReveal);
   $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : "⏹ 提前揭曉答案";
-  $("nextStepBtn").classList.toggle("hidden", room.status !== "reveal");
+  $("nextStepBtn").classList.toggle("hidden", !isReveal);
   $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
   watchQuestion(room.currentIndex);
   updateAnsweredCount();
-  if (room.status === "reveal") {
+  if (isClassroom && room.status === "question") {
+    speakClassroomQuestion(room.currentIndex, question.text);
+  }
+  if (isReveal) {
     renderChart();
     if (lastReveal !== room.currentIndex) {
       lastReveal = room.currentIndex;
@@ -717,40 +774,43 @@ function renderLeaderboard(ranked, final, index) {
 let renderedState = "";
 function renderRoom() {
   const state = room.status + ":" + room.currentIndex;
-  if (state === renderedState) return;
-  renderedState = state;
-  clearInterval(countdown);
-  if (room.status === "lobby") {
-    renderLobby();
-    showView("lobbyView");
-  } else if (["question", "grading", "reveal"].includes(room.status)) {
-    showView("questionView");
-    renderQuestion();
-    if (room.status === "question") {
-      startCountdown();
-      maybeReveal();
+  if (state !== renderedState) {
+    renderedState = state;
+    clearInterval(countdown);
+    if (room.status === "lobby") {
+      renderLobby();
+      showView("lobbyView");
+    } else if (["question", "grading", "reveal"].includes(room.status)) {
+      showView("questionView");
+      renderQuestion();
+      if (room.status === "question") {
+        startCountdown();
+        maybeReveal();
+      }
+    } else if (["leaderboard", "finished"].includes(room.status)) {
+      const final = room.status === "finished";
+      $("rankList").textContent = "正在讀取排行榜…";
+      $("nextQuestionBtn").classList.toggle("hidden", final);
+      $("exportCsvBtn").classList.toggle("hidden", !final);
+      $("finishCleanupBtn").classList.toggle("hidden", !final);
+      showView("leaderboardView");
+      readRanks().then(ranks => {
+        if (renderedState === state) renderLeaderboard(ranks, final, room.currentIndex);
+      }).catch(error => {
+        if (renderedState !== state) return;
+        $("rankList").textContent = "讀取排行榜失敗，重新載入頁面可重試。";
+        notice(error.message);
+      });
+    } else if (room.status === "closed") {
+      $("hostLoginBox").classList.add("hidden");
+      $("quizPickerBox").classList.add("hidden");
+      $("setupStatus").textContent = "房間已關閉。若尚有資料，可按右上角繼續清除。";
+      showView("setupView");
     }
-  } else if (["leaderboard", "finished"].includes(room.status)) {
-    const final = room.status === "finished";
-    $("rankList").textContent = "正在讀取排行榜…";
-    $("nextQuestionBtn").classList.toggle("hidden", final);
-    $("exportCsvBtn").classList.toggle("hidden", !final);
-    $("finishCleanupBtn").classList.toggle("hidden", !final);
-    showView("leaderboardView");
-    readRanks().then(ranks => {
-      if (renderedState === state) renderLeaderboard(ranks, final, room.currentIndex);
-    }).catch(error => {
-      if (renderedState !== state) return;
-      $("rankList").textContent = "讀取排行榜失敗，重新載入頁面可重試。";
-      notice(error.message);
-    });
-  } else if (room.status === "closed") {
-    $("hostLoginBox").classList.add("hidden");
-    $("quizPickerBox").classList.add("hidden");
-    $("setupStatus").textContent = "房間已關閉。若尚有資料，可按右上角繼續清除。";
-    showView("setupView");
+    setControls();
+  } else if (room.status === "question" && (room.playMode || "classroom") === "classroom") {
+    speakClassroomQuestion(room.currentIndex, room.questions[room.currentIndex]?.text);
   }
-  setControls();
 }
 
 function csvCell(value) {
@@ -861,7 +921,8 @@ async function loadSetup() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "btnPrimary";
-    button.textContent = (quiz.title || "未命名題庫") + "（" + (quiz.questions?.length || 0) + " 題）▶";
+    const modeText = quiz.playMode === "remote" ? "遠端使用" : "教室內使用";
+    button.textContent = (quiz.title || "未命名題庫") + "（" + (quiz.questions?.length || 0) + " 題・" + modeText + "）▶";
     button.onclick = () => createRoom(doc.id);
     return button;
   }));
@@ -894,6 +955,10 @@ document.addEventListener("click", unlockAudio);
 $("soundToggleBtn").onclick = () => {
   soundEnabled = !soundEnabled;
   $("soundToggleBtn").textContent = soundEnabled ? "🔊 音效：開" : "🔇 音效：關";
+  if (!soundEnabled) {
+    try { window.speechSynthesis?.cancel(); } catch {}
+    if (room?.status === "question") markNarrationDone(room.currentIndex);
+  }
 };
 $("copyJoinUrlBtn").onclick = async () => {
   try {
