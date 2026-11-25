@@ -44,7 +44,6 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .padBtn{color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:14px;box-shadow:0 7px 0 rgba(0,0,0,.22);word-break:break-word;text-align:center}
 .padBtn:active{transform:translateY(4px);box-shadow:0 2px 0 rgba(0,0,0,.22)}
 .pad0{background:var(--red)}.pad1{background:var(--blue)}.pad2{background:var(--yellow)}.pad3{background:var(--green)}
-.padShape{font-size:clamp(42px,12vw,68px);line-height:1}
 .padLabel{font-size:clamp(16px,4.5vw,21px);line-height:1.25}
 
 /* 全螢幕狀態回饋與 3 秒倒數特效 */
@@ -70,11 +69,16 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 #studentQuestion a{font-size:12px;display:inline-block}
 .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(min-content,1fr));gap:7px;min-height:clamp(142px,36dvh,380px)}
 .inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}
-.inGame .padShape{font-size:clamp(18px,5dvh,42px)}
+.padVisual{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-width:0}
+.padShape{flex:none;width:min(68%,clamp(32px,13dvh,112px));aspect-ratio:1;background:#fff}
+.pad0 .padShape{clip-path:polygon(50% 0,100% 92%,0 92%)}
+.pad1 .padShape{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.pad2 .padShape{border-radius:50%}
 .inGame .padLabel{font-size:clamp(12px,3vw,19px);overflow-wrap:anywhere}
 .padImage,#resultImage{display:block;width:100%;height:min(13dvh,110px);object-fit:contain;background:white;border-radius:6px}
 #resultImage{width:min(220px,100%)}
-.padBtn:has(.padImage:not(.hidden)) .padShape{font-size:clamp(14px,3dvh,26px)}
+.padVisual:has(.padImage:not(.hidden)) .padShape{width:min(42%,clamp(30px,11dvh,92px))}
+.padVisual .padImage{flex:0 1 48%;min-width:0}
 .inGame .fullBanner{padding:12px;overflow-wrap:anywhere}
 .inGame .bigIcon{font-size:clamp(33px,10dvh,84px)}
 @media(max-height:650px){.inGame .padImage{height:9dvh}}
@@ -138,21 +142,21 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 
     <!-- 四色按鍵區 -->
     <div id="padGrid" class="padGrid hidden">
-      <button type="button" class="padBtn pad0" data-choice="0">
-        <span class="padShape" aria-hidden="true">▲</span>
+      <button type="button" class="padBtn pad0" data-choice="0" aria-label="選項 1">
         <span id="padLabel_0" class="padLabel"></span>
+        <span class="padVisual"><span class="padShape" aria-hidden="true"></span></span>
       </button>
-      <button type="button" class="padBtn pad1" data-choice="1">
-        <span class="padShape" aria-hidden="true">◆</span>
+      <button type="button" class="padBtn pad1" data-choice="1" aria-label="選項 2">
         <span id="padLabel_1" class="padLabel"></span>
+        <span class="padVisual"><span class="padShape" aria-hidden="true"></span></span>
       </button>
-      <button type="button" class="padBtn pad2" data-choice="2">
-        <span class="padShape" aria-hidden="true">●</span>
+      <button type="button" class="padBtn pad2" data-choice="2" aria-label="選項 3">
         <span id="padLabel_2" class="padLabel"></span>
+        <span class="padVisual"><span class="padShape" aria-hidden="true"></span></span>
       </button>
-      <button type="button" class="padBtn pad3" data-choice="3">
-        <span class="padShape" aria-hidden="true">■</span>
+      <button type="button" class="padBtn pad3" data-choice="3" aria-label="選項 4">
         <span id="padLabel_3" class="padLabel"></span>
+        <span class="padVisual"><span class="padShape" aria-hidden="true"></span></span>
       </button>
     </div>
 
@@ -590,9 +594,11 @@ function render() {
 
     for (const button of buttons) {
       const choice = Number(button.dataset.choice);
-      $("padLabel_" + choice).textContent = question.options[choice];
+      const label = question.options[choice];
+      $("padLabel_" + choice).textContent = label;
+      button.setAttribute("aria-label", label || "選項 " + (choice + 1));
       let img = button.querySelector(".padImage");
-      if (!img) { img = document.createElement("img"); img.className = "padImage hidden"; img.alt = `選項 ${choice+1} 圖片`; button.insertBefore(img,$("padLabel_" + choice)); }
+      if (!img) { img = document.createElement("img"); img.className = "padImage hidden"; img.alt = `選項 ${choice+1} 圖片`; button.querySelector(".padVisual").append(img); }
       showOptionImage(img, question.optionImageDriveIds?.[choice]);
       button.disabled = !answerReady || countingDown || waitingForNarration || sending || Boolean(answer);
     }

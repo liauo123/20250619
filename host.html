@@ -67,12 +67,11 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
 .optCard.correctGlow{box-shadow:0 0 0 6px #bbf7d0,0 10px 25px rgba(22,163,74,.4);transform:scale(1.02)}
 .optMark{margin-left:auto;font-size:30px}
 
-/* 統計長條圖 */
-.chartWrap{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;height:190px;align-items:end;background:#fff;padding:18px 24px 12px;border-radius:18px;margin-bottom:18px;box-shadow:0 6px 20px rgba(15,23,42,.06)}
-.barCol{display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:6px}
-.barCount{font-weight:1000;font-size:18px}
-.barFill{width:70%;max-width:90px;min-height:8px;border-radius:10px 10px 0 0;transition:height .5s ease}
-.barLabel{font-weight:900;font-size:16px}
+.optionsGrid.showCounts .optCard{position:relative;padding-bottom:36px}
+.optCount{position:absolute;right:12px;bottom:8px;border-radius:999px;padding:3px 9px;background:#fff;color:#1e293b;font-size:16px;line-height:1.2}
+.optionsGrid.showCounts .optCard.dimmed{opacity:1}
+.optionsGrid.showCounts .optCard.dimmed::after{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--bg);opacity:.68;pointer-events:none}
+.optionsGrid.showCounts .optCard.dimmed .optCount{z-index:1}
 
 /* 排行榜與頒獎台 */
 .rankList{display:grid;gap:10px;max-width:780px;margin:16px auto}
@@ -85,7 +84,7 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
 <body>
 <header>
   <div class="pinBanner">
-    <strong style="font-size:18px">Kahoot 主持控制台</strong>
+    <strong style="font-size:18px">主持控制台</strong>
     <span id="headerPin" class="pinTag hidden">PIN: ------</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
@@ -165,47 +164,27 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
       </div>
     </div>
 
-    <!-- 揭曉答案長條圖 -->
-    <div id="revealChart" class="chartWrap hidden">
-      <div class="barCol">
-        <div id="barCount_0" class="barCount">0</div>
-        <div id="barFill_0" class="barFill opt0" style="height:0"></div>
-        <div class="barLabel">▲ 紅</div>
-      </div>
-      <div class="barCol">
-        <div id="barCount_1" class="barCount">0</div>
-        <div id="barFill_1" class="barFill opt1" style="height:0"></div>
-        <div class="barLabel">◆ 藍</div>
-      </div>
-      <div class="barCol">
-        <div id="barCount_2" class="barCount">0</div>
-        <div id="barFill_2" class="barFill opt2" style="height:0"></div>
-        <div class="barLabel">● 黃</div>
-      </div>
-      <div class="barCol">
-        <div id="barCount_3" class="barCount">0</div>
-        <div id="barFill_3" class="barFill opt3" style="height:0"></div>
-        <div class="barLabel">■ 綠</div>
-      </div>
-    </div>
-
     <!-- 四色選項顯示 -->
     <div id="optionsGrid" class="optionsGrid">
       <div id="optCard_0" class="optCard opt0">
         <span aria-hidden="true">▲</span>
         <span id="optText_0"></span><span id="optMark_0" class="optMark"></span>
+        <span id="optCount_0" class="optCount hidden"></span>
       </div>
       <div id="optCard_1" class="optCard opt1">
         <span aria-hidden="true">◆</span>
         <span id="optText_1"></span><span id="optMark_1" class="optMark"></span>
+        <span id="optCount_1" class="optCount hidden"></span>
       </div>
       <div id="optCard_2" class="optCard opt2">
         <span aria-hidden="true">●</span>
         <span id="optText_2"></span><span id="optMark_2" class="optMark"></span>
+        <span id="optCount_2" class="optCount hidden"></span>
       </div>
       <div id="optCard_3" class="optCard opt3">
         <span aria-hidden="true">■</span>
         <span id="optText_3"></span><span id="optMark_3" class="optMark"></span>
+        <span id="optCount_3" class="optCount hidden"></span>
       </div>
     </div>
   </section>
@@ -553,7 +532,7 @@ function watchQuestion(index) {
         updateAnsweredCount();
         maybeReveal();
       }
-      if (room.status === "reveal") renderChart();
+      if (room.status === "reveal") renderOptionCounts();
     }, error => notice("讀取作答失敗：" + error.message));
 }
 
@@ -629,7 +608,10 @@ function renderQuestion() {
     $("optMark_" + index).textContent = correct ? "✓" : "";
   });
   $("liveHud").classList.toggle("hidden", room.status !== "question");
-  $("revealChart").classList.toggle("hidden", !isReveal);
+  $("optionsGrid").classList.toggle("showCounts", isReveal);
+  for (let index = 0; index < 4; index++) {
+    $("optCount_" + index).classList.toggle("hidden", !isReveal);
+  }
   $("revealNowBtn").classList.toggle("hidden", isReveal);
   $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : "⏹ 提前揭曉答案";
   $("nextStepBtn").classList.toggle("hidden", !isReveal);
@@ -640,7 +622,7 @@ function renderQuestion() {
     speakClassroomQuestion(room.currentIndex, question.text);
   }
   if (isReveal) {
-    renderChart();
+    renderOptionCounts();
     if (lastReveal !== room.currentIndex) {
       lastReveal = room.currentIndex;
       tone(523.25, 0.15);
@@ -650,15 +632,13 @@ function renderQuestion() {
   }
 }
 
-function renderChart() {
+function renderOptionCounts() {
   const counts = [0, 0, 0, 0];
   for (const { choiceIndex } of answers) {
     if (Number.isInteger(choiceIndex) && choiceIndex >= 0 && choiceIndex < counts.length) counts[choiceIndex]++;
   }
-  const max = Math.max(1, ...counts);
   counts.forEach((count, index) => {
-    $("barCount_" + index).textContent = count + (index === room.revealedAnswer ? " ✓" : "");
-    $("barFill_" + index).style.height = (count / max * 100) + "%";
+    $("optCount_" + index).textContent = count + " 人";
   });
 }
 
