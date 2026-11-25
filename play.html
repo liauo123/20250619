@@ -726,6 +726,22 @@ function render() {
   }
 }
 
+function submissionWarning(error) {
+  switch (error?.code) {
+    case "permission-denied":
+      return "Firebase 拒絕寫入答案。請通知主持人確認已發布新版 Firestore 規則。";
+    case "unavailable":
+    case "deadline-exceeded":
+      return "暫時無法連上資料庫，請確認網路後再試。";
+    case "question-closed":
+      return "本題已停止作答。";
+    case "progress-changed":
+      return "作答進度已更新，請稍候同步。";
+    default:
+      return "答案尚未確認送達，請確認網路後再試。";
+  }
+}
+
 $("padGrid").onclick = async event => {
   const button = event.target.closest(".padBtn");
   const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
@@ -749,25 +765,28 @@ $("padGrid").onclick = async event => {
       if (latest?.status !== "question" ||
           (latest.selfPaced ? latest.playMode !== "remote" || !latest.questions?.[index] :
             latest.currentIndex !== index || (latest.playMode !== "remote" && latest.narrationDoneIndex !== index))) {
-        throw new Error("本題尚未開放作答或已經結束。");
+        throw Object.assign(new Error("本題尚未開放作答或已經結束。"), { code: "question-closed" });
       }
       if (latest.selfPaced) {
         const member = await transaction.get(activeMember);
         if (!member.exists || (member.data().lastScoredIndex ?? -1) + 1 !== index) {
-          throw new Error("作答進度已更新，請稍候同步。");
+          throw Object.assign(new Error("作答進度已更新，請稍候同步。"), { code: "progress-changed" });
         }
       }
       transaction.set(ref, data);
       return data;
     });
     if (generation === activeSession && index === answerIndex) answer = savedAnswer;
-  } catch {
+  } catch (error) {
+    warning = submissionWarning(error);
     try {
       const saved = await ref.get({ source: "server" });
-      if (saved.exists && generation === activeSession && index === answerIndex) answer = saved.data();
-      else warning = "答案未送達，可能已停止作答。仍可作答時請再點一次。";
+      if (saved.exists && generation === activeSession && index === answerIndex) {
+        answer = saved.data();
+        warning = "";
+      }
     } catch {
-      warning = "無法確認答案是否送達，請檢查網路連線。";
+      // Keep the original write error when a follow-up read also fails.
     }
   } finally {
     if (generation === activeSession) {
