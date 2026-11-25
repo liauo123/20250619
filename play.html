@@ -72,6 +72,9 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 @keyframes answerPop{0%{transform:scale(.4);opacity:.3}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
 @keyframes answerShake{0%,100%{transform:translateX(0)}25%,75%{transform:translateX(-8px)}50%{transform:translateX(8px)}}
 @media(prefers-reduced-motion:reduce){.remoteFeedback #resultIcon{animation:none!important}}
+#voiceAnswerPanel{margin-top:8px}
+#startVoiceBtn{background:var(--purple);color:white;padding:8px 14px;min-height:42px;font-size:15px}
+#voiceAnswerStatus{font-size:13px;margin:5px 0 0}
 #studentQuestion a{font-size:12px;display:inline-block}
 .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(min-content,1fr));gap:7px;min-height:clamp(142px,36dvh,380px)}
 .inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}
@@ -128,6 +131,10 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     <div id="studentQuestion" class="card hidden" style="margin:0 0 12px">
       <div id="studentQuestionText" style="font-size:20px;font-weight:800;overflow-wrap:anywhere"></div>
       <button id="readQuestionBtn" class="readQuestionBtn" type="button">🔊 朗讀題目</button>
+      <div id="voiceAnswerPanel" class="hidden">
+        <button id="startVoiceBtn" type="button">🎙 開始說答案</button>
+        <p id="voiceAnswerStatus" role="status">請說「選項一」到「選項四」，也可以說出選項文字。</p>
+      </div>
       <img id="studentQuestionImg" class="hidden" style="max-width:100%;max-height:200px;object-fit:contain;margin-top:8px" alt="題目圖片">
       <a id="studentDriveLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟雲端圖片（若未顯示）</a>
       <iframe id="studentVideo" class="studentVideo hidden" title="題目影片" allowfullscreen></iframe><a id="studentVideoLink" class="hidden" target="_blank" rel="noopener noreferrer">開啟影片</a>
@@ -231,6 +238,8 @@ let remoteUtterance = null;
 let remoteIndex = null;
 let remoteFeedbackTimer = null;
 const REMOTE_FEEDBACK_MS = 900;
+let voiceRecognition = null;
+const VOICE_HINT = "請說「選項一」到「選項四」，也可以說出選項文字。";
 
 function clearThreeSecCountdown() {
   clearInterval(threeSecTimer);
@@ -282,6 +291,7 @@ function speakRemoteQuestion(index, text, replay = false) {
 $("readQuestionBtn").onclick = () => {
   const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
   const question = room?.questions?.[index];
+  if (voiceRecognition) return;
   if (room?.playMode === "remote" && room.status === "question" && question) {
     speakRemoteQuestion(index, question.text, true);
   }
@@ -313,6 +323,7 @@ function showView(active) {
   const wrap = document.querySelector(".wrap");
   wrap.classList.toggle("inGame", active !== "joinView");
   if (active !== "playView") {
+    stopVoiceRecognition();
     $("studentVideo").removeAttribute("src");
     $("studentVideo").classList.add("hidden");
     clearThreeSecCountdown();
@@ -538,6 +549,8 @@ function currentAnswerRef(index) {
 
 function watchAnswer(index) {
   if (index === answerIndex) return;
+  stopVoiceRecognition();
+  $("voiceAnswerStatus").textContent = VOICE_HINT;
   stopAnswer?.();
   answerIndex = index;
   answerReady = false;
@@ -564,6 +577,7 @@ function setPlaySections({ countdown = false, choices = false, waiting = false, 
 function showRemoteFeedback(index) {
   if (feedbackIndex === index) return;
   feedbackIndex = index;
+  stopVoiceRecognition();
   stopRemoteSpeech();
   const correct = player.lastPoints > 0;
   setPlaySections({ result: true });
@@ -584,6 +598,7 @@ function showRemoteFeedback(index) {
 }
 
 function remoteWaiting(title, message) {
+  stopVoiceRecognition();
   stopRemoteSpeech();
   $("studentQuestion").classList.add("hidden");
   setPlaySections({ waiting: true });
@@ -655,7 +670,14 @@ function render() {
     frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
     if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
     $("readQuestionBtn").classList.toggle("hidden", room.status !== "question" || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined");
-    if (room.status === "question") speakRemoteQuestion(index, question.text);
+    const voiceEnabled = selfPaced && room.voiceAnswer === true && room.status === "question";
+    $("voiceAnswerPanel").classList.toggle("hidden", !voiceEnabled);
+    if (voiceEnabled) {
+      const supported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+      $("startVoiceBtn").disabled = !supported || !answerReady || sendingIndex === index;
+      if (!supported) $("voiceAnswerStatus").textContent = "此瀏覽器不支援語音辨識，請點選答案。";
+    }
+    if (room.status === "question" && !voiceRecognition) speakRemoteQuestion(index, question.text);
   } else {
     $("studentVideo").removeAttribute("src");
     $("studentVideo").classList.add("hidden");
@@ -726,6 +748,90 @@ function render() {
   }
 }
 
+function normalizeSpokenChoice(text) {
+  return String(text ?? "").normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
+}
+
+function recognizeChoice(text, options) {
+  const spoken = normalizeSpokenChoice(text);
+  if (!spoken) return -1;
+  const aliases = [["1","一","壹","a","a選項"], ["2","二","兩","貳","b","b選項"],
+    ["3","三","參","c","c選項"], ["4","四","肆","d","d選項"]];
+  const command = /^(?:我選(?:擇)?|答案(?:是|為)?|選擇?|選項|第)/.test(spoken);
+  const short = spoken.replace(/^(?:我選(?:擇)?|答案(?:是|為)?)/, "")
+    .replace(/^(?:選項|選擇?|第)/, "").replace(/(?:個選項|個|號)$/, "");
+  const alias = aliases.findIndex(values => values.includes(short));
+  if (command && alias >= 0) return alias;
+  const matches = [];
+  for (const [index, option] of options.entries()) {
+    const label = normalizeSpokenChoice(option);
+    if (label && (label === spoken || (command && label === short))) matches.push(index);
+  }
+  if (alias >= 0 && !matches.includes(alias)) matches.push(alias);
+  return matches.length === 1 ? matches[0] : -1;
+}
+
+function stopVoiceRecognition() {
+  if (!voiceRecognition) return;
+  const session = voiceRecognition;
+  voiceRecognition = null;
+  $("startVoiceBtn").textContent = "🎙 開始說答案";
+  try { session.abort(); } catch {}
+}
+
+$("startVoiceBtn").onclick = () => {
+  if (voiceRecognition) {
+    stopVoiceRecognition();
+    $("voiceAnswerStatus").textContent = VOICE_HINT;
+    return;
+  }
+  const SpeechInput = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const index = remoteIndex;
+  if (!SpeechInput || !room?.voiceAnswer || room.status !== "question" || !answerReady ||
+      index !== answerIndex || answer || sendingIndex === index) return;
+  unlockAudio();
+  stopRemoteSpeech();
+  const status = $("voiceAnswerStatus");
+  let session;
+  try {
+    session = new SpeechInput();
+    session.lang = "zh-TW";
+    session.continuous = false;
+    session.interimResults = false;
+    voiceRecognition = session;
+    $("startVoiceBtn").textContent = "停止辨識";
+    status.textContent = "正在聽，請說出答案…";
+    session.onresult = event => {
+      if (voiceRecognition !== session || remoteIndex !== index || room?.status !== "question") return;
+      const text = event.results[event.resultIndex][0].transcript;
+      const choice = recognizeChoice(text, room.questions[index].options);
+      stopVoiceRecognition();
+      if (choice < 0) {
+        status.textContent = `聽到「${text}」，請再說一次，例如「選項一」。`;
+        return;
+      }
+      status.textContent = `已辨識為選項 ${choice + 1}，正在送出…`;
+      return submitChoice(choice);
+    };
+    session.onerror = event => {
+      if (voiceRecognition !== session) return;
+      stopVoiceRecognition();
+      status.textContent = event.error === "not-allowed" || event.error === "service-not-allowed"
+        ? "無法使用麥克風，請允許麥克風權限，或點選答案。"
+        : "這次沒有辨識成功，請再試一次，或點選答案。";
+    };
+    session.onend = () => {
+      if (voiceRecognition !== session) return;
+      stopVoiceRecognition();
+      status.textContent = "沒有聽到答案，請再試一次。";
+    };
+    session.start();
+  } catch {
+    stopVoiceRecognition();
+    status.textContent = "無法啟動語音辨識，請再試一次，或點選答案。";
+  }
+};
+
 function submissionWarning(error) {
   switch (error?.code) {
     case "permission-denied":
@@ -742,12 +848,18 @@ function submissionWarning(error) {
   }
 }
 
-$("padGrid").onclick = async event => {
+$("padGrid").onclick = event => {
   const button = event.target.closest(".padBtn");
+  if (button && !button.disabled) return submitChoice(Number(button.dataset.choice));
+};
+
+async function submitChoice(choice) {
   const index = room?.selfPaced ? remoteIndex : room?.currentIndex;
-  if (!button || button.disabled || room?.status !== "question" || !answerReady || answer ||
+  if (!Number.isInteger(choice) || choice < 0 || choice > 3 ||
+      room?.status !== "question" || !answerReady || answer ||
       index !== answerIndex || sendingIndex === index) return;
   unlockAudio();
+  stopVoiceRecognition();
   const activeSession = generation;
   const ref = currentAnswerRef(index);
   sendingIndex = index;
@@ -755,7 +867,7 @@ $("padGrid").onclick = async event => {
   render();
   let warning = "";
   try {
-    const data = { uid: student.uid, qIndex: index, choiceIndex: Number(button.dataset.choice), submittedAt: stamp() };
+    const data = { uid: student.uid, qIndex: index, choiceIndex: choice, submittedAt: stamp() };
     const activeRoom = roomRef;
     const activeMember = playerRef;
     const savedAnswer = await db.runTransaction(async transaction => {
@@ -791,11 +903,14 @@ $("padGrid").onclick = async event => {
   } finally {
     if (generation === activeSession) {
       if (sendingIndex === index) sendingIndex = -1;
-      if (index === answerIndex && room.status === "question" && warning) playStatus(warning, true);
+      if (index === answerIndex && room.status === "question" && warning) {
+        playStatus(warning, true);
+        if (room.voiceAnswer) $("voiceAnswerStatus").textContent = VOICE_HINT;
+      }
       render();
     }
   }
-};
+}
 
 $("joinBtn").onclick = joinRoom;
 for (const id of ["pinInput", "nameInput"]) {

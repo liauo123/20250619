@@ -116,11 +116,13 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
           <div class="modeChecks" role="group" aria-label="作答顯示模式">
             <label class="modeCheckLabel"><input id="modeClassroom" type="checkbox" checked> 教室內使用</label>
             <label class="modeCheckLabel"><input id="modeRemote" type="checkbox"> 遠端使用</label>
+            <label class="modeCheckLabel"><input id="voiceAnswer" type="checkbox" aria-describedby="voiceAnswerHint"> 語音辨識</label>
           </div>
         </div>
         <button id="newQuizBtn" class="btnLight" type="button">＋ 清空並建立新題庫</button>
       </div>
 
+      <p id="voiceAnswerHint" class="status hidden">語音辨識模式由學生各自作答，題目與選項顯示在學生端。</p>
       <label style="font-size:13px;font-weight:800;color:var(--muted)">題庫名稱</label>
       <input id="quizTitle" placeholder="例如：三年級自然科－認識植物隨堂搶答">
       <button id="driveConnectBtn" class="btnLight" type="button">🔗 連結 Google 雲端硬碟</button>
@@ -253,6 +255,16 @@ function applyPlayModeUI(mode) {
   $("modeRemote").checked = playMode === "remote";
 }
 
+function setVoiceAnswer(value) {
+  $("voiceAnswer").checked = value === true;
+  $("voiceAnswerHint").classList.toggle("hidden", value !== true);
+}
+
+$("voiceAnswer").addEventListener("change", () => {
+  setVoiceAnswer($("voiceAnswer").checked);
+  scheduleDraftSave();
+});
+
 function setPlayMode(mode, syncDraft = true) {
   applyPlayModeUI(mode);
   if (syncDraft) scheduleDraftSave();
@@ -326,6 +338,7 @@ function saveDraft() {
     localStorage.setItem(draftKey(), JSON.stringify({
       editingQuizId,
       playMode,
+      voiceAnswer: $("voiceAnswer").checked,
       title: $("quizTitle").value,
       questions
     }));
@@ -365,6 +378,7 @@ function restoreDraft() {
     if (!data || !Array.isArray(data.questions) || !data.questions.length) return false;
     editingQuizId = data.editingQuizId || "";
     applyPlayModeUI(data.playMode);
+    setVoiceAnswer(data.voiceAnswer);
     $("quizTitle").value = data.title || "";
     questions = data.questions.map(normalizeQuestion);
     $("editorHeading").textContent = "編輯雲端題庫";
@@ -576,6 +590,7 @@ $("newQuizBtn").onclick = () => {
   editorVersion++;
   editingQuizId = "";
   applyPlayModeUI("classroom");
+  setVoiceAnswer(false);
   $("editorHeading").textContent = "編輯雲端題庫";
   $("quizTitle").value = "";
   questions = [createEmptyQuestion()];
@@ -625,6 +640,7 @@ $("saveQuizBtn").onclick = async () => {
     teacherEmail: currentUser.email || "",
     title,
     playMode,
+    voiceAnswer: $("voiceAnswer").checked,
     questionCount: questions.length,
     questions: questions.map(q => ({
       text: q.text.trim(),
@@ -690,7 +706,8 @@ function listenMyQuizzes() {
       $("quizList").innerHTML = cachedNotice + docs.map(doc => {
         const d = doc.data();
         const count = Array.isArray(d.questions) ? d.questions.length : 0;
-        const modeText = normalizePlayMode(d.playMode) === "remote" ? "遠端使用" : "教室內使用";
+        const modeText = d.voiceAnswer === true ? "語音辨識・個別作答" :
+          normalizePlayMode(d.playMode) === "remote" ? "遠端使用" : "教室內使用";
         return `
           <div class="quizItem">
             <div class="quizTitle">${esc(d.title || "未命名題庫")}</div>
@@ -724,6 +741,7 @@ async function loadQuizToEditor(id) {
     const d = snap.data();
     editingQuizId = snap.id;
     applyPlayModeUI(d.playMode);
+    setVoiceAnswer(d.voiceAnswer);
     $("editorHeading").textContent = "編輯雲端題庫";
     $("quizTitle").value = d.title || "";
     questions = Array.isArray(d.questions) ? d.questions.map(normalizeQuestion) : [];
@@ -783,6 +801,7 @@ auth.onAuthStateChanged(user => {
     if (!restoreDraft()) {
       editingQuizId = "";
       applyPlayModeUI("classroom");
+      setVoiceAnswer(false);
       $("quizTitle").value = "";
       $("editorHeading").textContent = "編輯雲端題庫";
       questions = [createEmptyQuestion()];

@@ -460,13 +460,15 @@ async function createRoom(quizId) {
       timeLimit: STANDARD_SCORING_MS / 1000,
       pointsMode: "standard"
     }));
-    const playMode = quiz.playMode === "remote" ? "remote" : "classroom";
+    const voiceAnswer = quiz.voiceAnswer === true;
+    const playMode = voiceAnswer || quiz.playMode === "remote" ? "remote" : "classroom";
     const data = {
       teacherId: teacher.uid,
       quizId,
       title: quiz.title || "即時搶答",
       playMode,
       ...(playMode === "remote" ? { selfPaced: true } : {}),
+      ...(voiceAnswer ? { voiceAnswer: true } : {}),
       narrationDoneIndex: -1,
       questions,
       status: "lobby",
@@ -558,7 +560,8 @@ function attachRoom(ref, keys) {
 }
 
 function renderLobby() {
-  const modeLabel = room.playMode === "remote" ? "遠端使用" : "教室內使用";
+  const modeLabel = room.voiceAnswer ? "語音辨識・個別作答" :
+    room.playMode === "remote" ? "遠端使用" : "教室內使用";
   $("lobbyQuizTitle").textContent = room.title + "（共 " + room.questions.length + " 題・" + modeLabel + "）";
   $("lobbyPlayerCount").textContent = "目前等待人數：" + players.length + " 人";
   const order = [...players].sort((a, b) => (a.seatNumber || 99) - (b.seatNumber || 99));
@@ -1189,7 +1192,8 @@ async function loadSetup() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "btnPrimary";
-    const modeText = quiz.playMode === "remote" ? "遠端使用" : "教室內使用";
+    const modeText = quiz.voiceAnswer === true ? "語音辨識・個別作答" :
+      quiz.playMode === "remote" ? "遠端使用" : "教室內使用";
     button.textContent = (quiz.title || "未命名題庫") + "（" + (quiz.questions?.length || 0) + " 題・" + modeText + "）▶";
     button.onclick = () => createRoom(doc.id);
     return button;
