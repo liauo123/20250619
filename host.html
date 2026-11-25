@@ -252,6 +252,9 @@ let stopPlayers;
 let stopAnswers;
 let countdown;
 let spokenQuestionKey = "";
+let phaseWrite = false;
+const PREPARE_MS = 3000;
+// narrationDoneIndex 為 -1 時念題，-2 時準備，題號相符時開放作答。
 let busy = false;
 let setupLoading = false;
 let playersReady = false;
@@ -310,19 +313,33 @@ function tone(frequency, duration) {
   oscillator.stop(now + duration);
 }
 
-function markNarrationDone(index) {
-  if (!roomRef || !room || room.playMode !== "classroom" || room.status !== "question" || room.currentIndex !== index) return;
-  if (room.narrationDoneIndex === index) return;
-  roomRef.update({ narrationDoneIndex: index }).catch(() => {});
+async function updateClassroomPhase(index, expected, next, ref = roomRef) {
+  if (!ref || ref !== roomRef || phaseWrite || room?.status !== "question" ||
+      room.currentIndex !== index || (room.playMode || "classroom") !== "classroom") return;
+  phaseWrite = true;
+  try {
+    await db.runTransaction(async transaction => {
+      const current = (await transaction.get(ref)).data();
+      if (current?.status !== "question" || current.currentIndex !== index ||
+          (current.narrationDoneIndex ?? -1) !== expected) return;
+      transaction.update(ref, { narrationDoneIndex: next, questionStartedAt: stamp() });
+    });
+  } catch (error) {
+    notice("無法同步作答時間。請檢查連線後重新整理主持頁。 " + firestoreMessage(error));
+    if (next === -2 && roomRef === ref) spokenQuestionKey = "";
+  } finally {
+    phaseWrite = false;
+  }
 }
 
 function speakClassroomQuestion(index, text) {
-  const key = (roomRef?.id || "") + ":" + index;
+  const ref = roomRef;
+  const key = (ref?.id || "") + ":" + index;
   if (spokenQuestionKey === key) return;
   spokenQuestionKey = key;
   const cleanText = String(text || "").trim();
   if (!soundEnabled || !cleanText || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-    markNarrationDone(index);
+    updateClassroomPhase(index, -1, -2, ref);
     return;
   }
   try {
@@ -334,14 +351,14 @@ function speakClassroomQuestion(index, text) {
       if (finished) return;
       finished = true;
       clearTimeout(fallbackTimer);
-      markNarrationDone(index);
+      updateClassroomPhase(index, -1, -2, ref);
     };
     const fallbackTimer = setTimeout(finish, Math.min(10000, Math.max(1200, cleanText.length * 160)));
     utter.onend = finish;
     utter.onerror = finish;
     window.speechSynthesis.speak(utter);
   } catch {
-    markNarrationDone(index);
+    updateClassroomPhase(index, -1, -2, ref);
   }
 }
 
@@ -460,9 +477,9 @@ function attachRoom(ref, keys) {
   $("lobbyPin").textContent = ref.id;
   $("joinUrlText").textContent = url.href;
   $("qrBox").replaceChildren();
-  if (typeof QRCode === "function") {
+  try {
     new QRCode($("qrBox"), { text: url.href, width: 210, height: 210, correctLevel: QRCode.CorrectLevel.M });
-  } else {
+  } catch {
     $("qrBox").textContent = "請使用下方學生加入網址。";
   }
 
@@ -546,7 +563,8 @@ function updateAnsweredCount() {
 }
 
 function maybeReveal() {
-  if (busy || room?.status !== "question" || !answersReady || !playersReady || !players.length) return;
+  if (busy || room?.status !== "question" ||
+      (room.playMode !== "remote" && room.narrationDoneIndex !== room.currentIndex) || !answersReady || !playersReady || !players.length) return;
   const answered = new Set(answers.map(answer => answer.uid));
   if (players.every(player => answered.has(player.id))) closeQuestion();
 }
@@ -593,7 +611,7 @@ function renderQuestion() {
   if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
   // 教室內使用：host 只顯示題目，不顯示 4 個選項（揭曉答案時才顯示）
-  $("optionsGrid").classList.toggle("hidden", isClassroom);
+  $("optionsGrid").classList.toggle("hidden", isClassroom && !isReveal);
   $("livePromptText").textContent = isClassroom && !isReveal
     ? "教室內使用模式：主持人畫面不顯示選項，請學生在手機上作答！"
     : "請學生在手機上點擊對應顏色的幾何按鈕！";
@@ -618,7 +636,7 @@ function renderQuestion() {
   $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
   watchQuestion(room.currentIndex);
   updateAnsweredCount();
-  if (isClassroom && room.status === "question") {
+  if (isClassroom && room.status === "question" && (room.narrationDoneIndex ?? -1) === -1) {
     speakClassroomQuestion(room.currentIndex, question.text);
   }
   if (isReveal) {
@@ -634,7 +652,9 @@ function renderQuestion() {
 
 function renderChart() {
   const counts = [0, 0, 0, 0];
-  for (const answer of answers) counts[answer.choiceIndex]++;
+  for (const { choiceIndex } of answers) {
+    if (Number.isInteger(choiceIndex) && choiceIndex >= 0 && choiceIndex < counts.length) counts[choiceIndex]++;
+  }
   const max = Math.max(1, ...counts);
   counts.forEach((count, index) => {
     $("barCount_" + index).textContent = count + (index === room.revealedAnswer ? " ✓" : "");
@@ -644,17 +664,41 @@ function renderChart() {
 
 function startCountdown() {
   const index = room.currentIndex;
-  const deadline = room.questionStartedAt.toMillis() + room.timeLimit * 1000;
+  const classroom = room.playMode !== "remote";
+  let attemptedAutoReveal = false;
+  let attemptedOpenAt = 0;
   lastSoundSecond = -1;
   const tick = () => {
-    if (room.status !== "question" || room.currentIndex !== index) return;
+    if (room?.status !== "question" || room.currentIndex !== index) return;
+    const startedAt = room.questionStartedAt?.toMillis();
+    const timer = $("timerCircle");
+    const prompt = $("livePromptText");
+    if (classroom && room.narrationDoneIndex !== index) {
+      timer.classList.remove("urgent");
+      if (room.narrationDoneIndex !== -2 || !Number.isFinite(startedAt)) {
+        timer.textContent = "—";
+        prompt.textContent = "正在念題目，請學生等候。";
+        return;
+      }
+      const remaining = Math.max(0, Math.min(3, Math.ceil((startedAt + PREPARE_MS - Date.now()) / 1000)));
+      timer.textContent = remaining || "—";
+      prompt.textContent = "請準備作答";
+      if (!remaining && !busy && Date.now() >= attemptedOpenAt) {
+        attemptedOpenAt = Date.now() + 3000;
+        updateClassroomPhase(index, -2, index);
+      }
+      return;
+    }
+    if (!Number.isFinite(startedAt)) return;
+    prompt.textContent = "請學生在手機上點擊對應選項。";
+    const deadline = startedAt + room.timeLimit * 1000;
     const remaining = Math.min(room.timeLimit, Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
-    $("timerCircle").textContent = remaining;
-    $("timerCircle").classList.toggle("urgent", remaining <= 5);
+    timer.textContent = remaining;
+    timer.classList.toggle("urgent", remaining <= 5);
     if (remaining > 0 && remaining <= 5 && remaining !== lastSoundSecond) tone(880, 0.08);
     lastSoundSecond = remaining;
-    if (remaining === 0 && !busy) {
-      clearInterval(countdown);
+    if (remaining === 0 && !busy && !attemptedAutoReveal) {
+      attemptedAutoReveal = true;
       closeQuestion();
     }
   };
@@ -695,7 +739,8 @@ function closeQuestion() {
           if (player.lastScoredIndex >= index) continue;
           const answer = answerByUid.get(member.id);
           const passed = answer?.choiceIndex === correct;
-          const elapsed = answer ? Math.min(totalMs, Math.max(0, answer.submittedAt.toMillis() - startedAt)) : totalMs;
+          const submittedAt = answer?.submittedAt?.toMillis?.() ?? startedAt + totalMs;
+          const elapsed = Math.min(totalMs, Math.max(0, submittedAt - startedAt));
           const points = passed ? Math.round(1000 - 500 * (elapsed / totalMs)) * multiplier : 0;
           transaction.update(member.ref, {
             totalScore: Number(player.totalScore || 0) + points,
@@ -808,8 +853,6 @@ function renderRoom() {
       showView("setupView");
     }
     setControls();
-  } else if (room.status === "question" && (room.playMode || "classroom") === "classroom") {
-    speakClassroomQuestion(room.currentIndex, room.questions[room.currentIndex]?.text);
   }
 }
 
@@ -942,6 +985,9 @@ auth.onAuthStateChanged(user => {
   if (teacher) setup();
   else {
     resetListeners();
+    roomRef = room = null;
+    $("headerPin").classList.add("hidden");
+    $("endRoomBtn").classList.add("hidden");
     $("retrySetupBtn").classList.add("hidden");
     $("backToEditor").classList.add("hidden");
     $("quizPickerBox").classList.add("hidden");
@@ -957,7 +1003,7 @@ $("soundToggleBtn").onclick = () => {
   $("soundToggleBtn").textContent = soundEnabled ? "🔊 音效：開" : "🔇 音效：關";
   if (!soundEnabled) {
     try { window.speechSynthesis?.cancel(); } catch {}
-    if (room?.status === "question") markNarrationDone(room.currentIndex);
+    if (room?.status === "question") updateClassroomPhase(room.currentIndex, -1, -2);
   }
 };
 $("copyJoinUrlBtn").onclick = async () => {

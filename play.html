@@ -59,48 +59,31 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
 @media(prefers-reduced-motion:reduce){.pulse,.countdownNum{animation:none}}
 button:focus-visible{outline:3px solid #111827;outline-offset:3px}
-.wrap.inGame{max-width:900px;min-height:100dvh;margin:0 auto;padding:max(5px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom))}
-.inGame .topHud{padding:5px 9px;margin-bottom:5px;gap:5px;font-size:clamp(12px,3vw,16px);flex-wrap:wrap}.inGame .scorePill{padding:3px 8px}
-.inGame #studentQuestion{padding:6px;margin:0 0 5px!important;text-align:center}.inGame #studentQuestionText{font-size:clamp(14px,3.5vw,20px)!important}
-.inGame #studentQuestionImg{max-height:min(20dvh,180px)!important;margin-top:3px!important}.studentVideo{display:block;width:min(100%,480px);height:min(25dvh,240px);margin:3px auto;border:0}.inGame #studentQuestion a{font-size:12px;display:inline-block}
-.inGame .padGrid{min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:7px;flex:1}.inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}.inGame .padShape{font-size:clamp(18px,5dvh,42px)}.inGame .padLabel{font-size:clamp(12px,3vw,19px);overflow-wrap:anywhere}.padImage{display:block;width:100%;height:min(13dvh,110px);object-fit:contain;background:white;border-radius:6px}.padBtn:has(.padImage:not(.hidden)) .padShape{font-size:clamp(14px,3dvh,26px)}
-.inGame .fullBanner{padding:12px}.inGame .bigIcon{font-size:clamp(33px,10dvh,84px)}
-.inGame #studentQuestion:has(#studentVideo:not(.hidden)) #studentQuestionImg{max-height:11dvh!important}.inGame #studentQuestion:has(#studentQuestionImg:not(.hidden)) .studentVideo{height:min(19dvh,180px)}
-@media(max-height:650px){.inGame .padBtn{gap:2px;padding:3px}.inGame .padImage{height:9dvh}.inGame #studentQuestion a{font-size:10px}.inGame .topHud{margin-bottom:3px}.inGame .padGrid{gap:5px}}
-@media (orientation:landscape) and (max-height:600px){.inGame #playView{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto 1fr;gap:5px}.inGame #playView.hidden{display:none!important}.inGame .topHud{grid-column:1/-1}.inGame #studentQuestion{grid-column:1;grid-row:2;align-self:stretch}.inGame #padGrid,.inGame #submittedBanner,.inGame #resultBanner,.inGame #countdownBanner{grid-column:2;grid-row:2}.inGame #playStatus:not(.hidden){grid-column:1/-1;grid-row:3}.inGame .studentVideo{height:min(45dvh,240px)}.inGame #studentQuestionImg{max-height:35dvh!important}.inGame .padImage{height:18dvh}}
-
-/* 強化瀏覽器大小調整、直式螢幕與橫式螢幕自適應 */
-.wrap{max-width:min(960px,100%);min-height:100dvh;height:auto}
-.wrap.inGame{max-width:min(1120px,100%);height:100dvh;overflow-y:auto}
-.inGame #playView{flex:1;min-height:0;display:flex;flex-direction:column}
-.inGame .padGrid{flex:1 1 auto;min-height:clamp(160px,36dvh,460px);height:100%}
-.inGame .padBtn{height:100%;min-height:0;overflow:hidden}
-@media (orientation:portrait){
-  .inGame .topHud{gap:6px;padding:6px 10px}
-  .inGame #studentQuestionImg{max-height:min(22dvh,190px)!important}
-  .inGame .studentVideo{height:min(24dvh,220px)}
-  .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:8px}
-}
-@media (orientation:landscape){
-  .inGame .topHud{padding:4px 10px;margin-bottom:4px}
-  .inGame #studentQuestion{padding:6px 10px;margin:0 0 4px!important}
-  .inGame #studentQuestionText{font-size:clamp(13px,2.8vmin,19px)!important}
-  .inGame #studentQuestionImg{max-height:min(26dvh,160px)!important}
-  .inGame .studentVideo{height:min(30dvh,170px)}
-  .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:6px;min-height:clamp(150px,42dvh,380px)}
-  .inGame .padShape{font-size:clamp(18px,5.5vmin,36px)}
-  .inGame .padLabel{font-size:clamp(12px,3vmin,18px)}
-}
+.wrap{max-width:min(960px,100%)}
+.wrap.inGame{max-width:min(1120px,100%);min-height:100dvh;margin:0 auto;padding:max(5px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom))}
+.inGame .topHud{padding:5px 9px;margin-bottom:5px;gap:5px;font-size:clamp(12px,3vw,16px);flex-wrap:wrap}
+.inGame .scorePill{padding:3px 8px}
+.inGame #studentQuestion{padding:6px;margin:0 0 5px!important;text-align:center}
+#studentQuestionText{font-size:clamp(14px,3.5vw,20px)!important}
+#studentQuestionImg{max-height:min(20dvh,180px)!important;margin-top:3px!important}
+.studentVideo{display:block;width:min(100%,480px);height:min(25dvh,240px);margin:3px auto;border:0}
+#studentQuestion a{font-size:12px;display:inline-block}
+.inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(min-content,1fr));gap:7px;min-height:clamp(142px,36dvh,380px)}
+.inGame .padBtn{min-width:0;min-height:58px;padding:4px;gap:3px;box-shadow:0 3px 0 rgba(0,0,0,.22)}
+.inGame .padShape{font-size:clamp(18px,5dvh,42px)}
+.inGame .padLabel{font-size:clamp(12px,3vw,19px);overflow-wrap:anywhere}
+.padImage,#resultImage{display:block;width:100%;height:min(13dvh,110px);object-fit:contain;background:white;border-radius:6px}
+#resultImage{width:min(220px,100%)}
+.padBtn:has(.padImage:not(.hidden)) .padShape{font-size:clamp(14px,3dvh,26px)}
+.inGame .fullBanner{padding:12px;overflow-wrap:anywhere}
+.inGame .bigIcon{font-size:clamp(33px,10dvh,84px)}
+@media(max-height:650px){.inGame .padImage{height:9dvh}}
 @media (orientation:landscape) and (max-height:600px){
-  .inGame #playView{display:grid!important;grid-template-columns:minmax(0,0.9fr) minmax(0,1.3fr);grid-template-rows:auto minmax(0,1fr);gap:6px}
-  .inGame #playView.hidden{display:none!important}
-  .inGame .topHud{grid-column:1/-1;grid-row:1}
-  .inGame #studentQuestion{grid-column:1;grid-row:2;align-self:stretch;overflow-y:auto;margin:0!important}
-  .inGame #padGrid,.inGame #submittedBanner,.inGame #resultBanner,.inGame #countdownBanner{grid-column:2;grid-row:2;min-height:0}
-  .inGame #playStatus:not(.hidden){grid-column:1/-1;grid-row:3;margin:0!important}
-  .inGame .studentVideo{height:min(44dvh,220px)}
-  .inGame #studentQuestionImg{max-height:min(34dvh,180px)!important}
-  .inGame .padImage{height:min(16dvh,96px)}
+  .inGame #playView.remote:not(.hidden){display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto auto 1fr;gap:6px}
+  .remote .topHud,.remote #playStatus{grid-column:1/-1}
+  .remote #studentQuestion{grid-column:1;grid-row:3;align-self:start}
+  .remote #padGrid,.remote #submittedBanner,.remote #resultBanner,.remote #countdownBanner{grid-column:2;grid-row:3}
+  .inGame .padLabel{font-size:clamp(12px,3vmin,18px)}
 }
 
 </style>
@@ -154,7 +137,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     </div>
 
     <!-- 四色按鍵區 -->
-    <div id="padGrid" class="padGrid">
+    <div id="padGrid" class="padGrid hidden">
       <button type="button" class="padBtn pad0" data-choice="0">
         <span class="padShape" aria-hidden="true">▲</span>
         <span id="padLabel_0" class="padLabel"></span>
@@ -185,6 +168,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
       <div id="resultIcon" class="bigIcon">✓</div>
       <h2 id="resultTitle" style="font-size:32px;margin:0 0 8px">答對了！</h2>
       <div id="resultPoints" style="font-size:24px;font-weight:900;background:rgba(0,0,0,.2);padding:8px 20px;border-radius:999px">+0 分</div>
+      <img id="resultImage" class="hidden" alt="正解圖片">
       <p id="resultSub" style="margin-top:14px;opacity:.92">請看大螢幕排行榜</p>
     </div>
   </section>
@@ -237,8 +221,6 @@ let stopAnswer;
 let audio;
 let generation = 0;
 let threeSecTimer = null;
-let threeSecStartedKey = "";
-let threeSecDoneKey = "";
 let spokenRemoteKey = "";
 
 function clearThreeSecCountdown() {
@@ -264,25 +246,26 @@ function speakRemoteQuestion(index, text) {
   } catch {}
 }
 
-function ensureThreeSecCountdown(index) {
-  const key = (roomRef?.id || "") + ":" + index;
-  if (threeSecDoneKey === key) return false;
-  if (threeSecStartedKey === key) return Boolean(threeSecTimer);
-  threeSecStartedKey = key;
-  clearThreeSecCountdown();
-  let count = 3;
-  $("threeSecNum").textContent = String(count);
-  threeSecTimer = setInterval(() => {
-    count -= 1;
-    if (count > 0) {
-      $("threeSecNum").textContent = String(count);
-      return;
-    }
-    clearThreeSecCountdown();
-    threeSecDoneKey = key;
-    render();
-  }, 1000);
-  return true;
+function updatePrepareCountdown() {
+  const startedAt = room?.questionStartedAt?.toMillis();
+  const remaining = Number.isFinite(startedAt) ? Math.ceil((startedAt + 3000 - Date.now()) / 1000) : 3;
+  $("threeSecNum").textContent = remaining > 0 ? String(Math.min(3, remaining)) : "…";
+  threeSecTimer ??= setInterval(updatePrepareCountdown, 200);
+}
+
+function mediaId(value) {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(value) ? value : "";
+}
+
+function showOptionImage(image, value) {
+  const id = mediaId(value);
+  image.classList.toggle("hidden", !id);
+  if (id) {
+    const url = `https://drive.google.com/thumbnail?id=${id}&sz=w540`;
+    if (image.getAttribute("src") !== url) image.src = url;
+  } else {
+    image.removeAttribute("src");
+  }
 }
 
 function showView(active) {
@@ -410,8 +393,6 @@ function resetSession(message, preservePin = false) {
   generation++;
   clearThreeSecCountdown();
   stopRemoteSpeech();
-  threeSecStartedKey = "";
-  threeSecDoneKey = "";
   spokenRemoteKey = "";
   stopRoom?.();
   stopPlayer?.();
@@ -556,6 +537,7 @@ function render() {
   const index = room.currentIndex;
   const question = room.questions[index];
   const isRemote = room.playMode === "remote";
+  $("playView").classList.toggle("remote", isRemote);
   showView("playView");
   $("playQNum").textContent = "第 " + (index + 1) + " / " + room.questions.length + " 題";
   if (!(room.status === "grading" && player.lastScoredIndex === index)) $("playScore").textContent = player.totalScore + " 分";
@@ -573,7 +555,6 @@ function render() {
     picture.classList.toggle("hidden", !src);
     if (src && picture.getAttribute("src") !== src) picture.src = src;
     if (!src) picture.removeAttribute("src");
-    const mediaId = v=>typeof v === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(v) ? v : "";
     const vid = mediaId(question.videoDriveId), frame = $("studentVideo"), videoLink = $("studentVideoLink");
     const videoSrc = vid ? `https://drive.google.com/file/d/${vid}/preview` : "";
     frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
@@ -588,8 +569,10 @@ function render() {
   if (room.status === "question") {
     const sending = sendingIndex === index;
     const narrationFinished = isRemote || room.narrationDoneIndex === index;
-    const countingDown = !isRemote && !sending && !answer && narrationFinished && ensureThreeSecCountdown(index);
-    const waitingForNarration = !isRemote && !sending && !answer && !narrationFinished;
+    const countingDown = !isRemote && room.narrationDoneIndex === -2;
+    const waitingForNarration = !countingDown && !narrationFinished;
+    if (countingDown) updatePrepareCountdown();
+    else clearThreeSecCountdown();
 
     setPlaySections({
       countdown: countingDown,
@@ -605,21 +588,19 @@ function render() {
       $("submittedMessage").textContent = "正在等待其他同學作答與大螢幕揭曉…";
     }
 
-    const mediaId = v=>typeof v === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(v) ? v : "";
     for (const button of buttons) {
       const choice = Number(button.dataset.choice);
       $("padLabel_" + choice).textContent = question.options[choice];
-      const id = mediaId(question.optionImageDriveIds?.[choice]);
       let img = button.querySelector(".padImage");
       if (!img) { img = document.createElement("img"); img.className = "padImage hidden"; img.alt = `選項 ${choice+1} 圖片`; button.insertBefore(img,$("padLabel_" + choice)); }
-      img.classList.toggle("hidden", !id);
-      if (id) { const url = `https://drive.google.com/thumbnail?id=${id}&sz=w540`; if (img.getAttribute("src") !== url) img.src = url; } else img.removeAttribute("src");
+      showOptionImage(img, question.optionImageDriveIds?.[choice]);
       button.disabled = !answerReady || countingDown || waitingForNarration || sending || Boolean(answer);
     }
     return;
   }
 
   clearThreeSecCountdown();
+  stopRemoteSpeech();
   if (room.status === "grading") {
     setPlaySections({ waiting: true });
     $("submittedBanner").querySelector("h2").textContent = "本題已停止作答";
@@ -640,6 +621,7 @@ function render() {
   $("resultIcon").textContent = correct ? "✓" : answer ? "✕" : "⏱";
   $("resultTitle").textContent = correct ? "答對了！" : answer ? "答錯了" : "本題未作答";
   $("resultPoints").textContent = "+" + (player.lastPoints || 0) + " 分";
+  showOptionImage($("resultImage"), question.optionImageDriveIds?.[room.revealedAnswer]);
   $("resultSub").textContent = "正解：" + (question.options[room.revealedAnswer] || `選項 ${room.revealedAnswer+1}`) +
     (room.status === "leaderboard" ? "｜請看大螢幕排行榜" : "");
   if (feedbackIndex !== index) {
@@ -660,8 +642,19 @@ $("padGrid").onclick = async event => {
   let warning = "";
   try {
     const data = { uid: student.uid, qIndex: index, choiceIndex: Number(button.dataset.choice), submittedAt: stamp() };
-    await ref.set(data);
-    if (generation === activeSession && index === answerIndex) answer = data;
+    const activeRoom = roomRef;
+    const savedAnswer = await db.runTransaction(async transaction => {
+      const [roomSnapshot, stored] = await Promise.all([transaction.get(activeRoom), transaction.get(ref)]);
+      if (stored.exists) return stored.data();
+      const latest = roomSnapshot.data();
+      if (latest?.status !== "question" || latest.currentIndex !== index ||
+          (latest.playMode !== "remote" && latest.narrationDoneIndex !== index)) {
+        throw new Error("本題尚未開放作答或已經結束。");
+      }
+      transaction.set(ref, data);
+      return data;
+    });
+    if (generation === activeSession && index === answerIndex) answer = savedAnswer;
   } catch {
     try {
       const saved = await ref.get({ source: "server" });
@@ -684,9 +677,12 @@ for (const id of ["pinInput", "nameInput"]) {
   $(id).onkeydown = event => { if (event.key === "Enter") joinRoom(); };
 }
 document.addEventListener("click", unlockAudio);
-$("leaveBtn").onclick = () => {
-  playerRef?.update({ onlineStatus: "left" }).catch(() => {});
+$("leaveBtn").onclick = async () => {
+  const ref = playerRef;
   resetSession("已離開遊戲，可以輸入新的房號。");
+  try {
+    await ref?.update({ onlineStatus: "left" });
+  } catch {}
 };
 
 function initialAuthState() {
@@ -713,7 +709,7 @@ async function init() {
         ref.get({ source: "server" }),
         ref.collection("players").doc(student.uid).get({ source: "server" })
       ]);
-      if (active.exists && active.data().status !== "closed" && member.exists) {
+      if (active.exists && active.data().status !== "closed" && member.exists && member.data().onlineStatus !== "left") {
         connect(ref);
         return;
       }
@@ -727,8 +723,6 @@ async function init() {
 }
 
 
-window.addEventListener("resize", () => { if (room && player) render(); });
-window.addEventListener("orientationchange", () => { setTimeout(() => { if (room && player) render(); }, 120); });
 
 init();
 </script>

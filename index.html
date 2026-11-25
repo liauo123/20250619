@@ -182,7 +182,7 @@ let driveToken = "", driveExpires = 0, driveFolder = "";
 function validDriveId(v) { return typeof v === "string" && /^[A-Za-z0-9_-]{10,150}$/.test(v) ? v : ""; }
 function driveImage(id) { return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w1000`; }
 function driveView(id) { return `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`; }
-function resetDrive() { driveToken = ""; driveExpires = 0; driveFolder = ""; $("driveConnectBtn").disabled = false; setStatus("driveStatus", "尚未連結 Google Drive；僅教材圖片開放連結分享。"); }
+function resetDrive() { driveToken = ""; driveExpires = 0; driveFolder = ""; $("driveConnectBtn").disabled = false; setStatus("driveStatus", "尚未連結 Google Drive；上傳的教材圖片與影片可透過連結查看。"); }
 $("driveConnectBtn").onclick = () => {
   if (!currentUser || $("saveQuizBtn").disabled) return;
   if (!window.google?.accounts?.oauth2) return setStatus("driveStatus", "Google 授權尚未載入，請稍後再試。", "err");
@@ -196,12 +196,12 @@ $("driveConnectBtn").onclick = () => {
         if (response.error || !response.access_token || !google.accounts.oauth2.hasGrantedAllScopes(response, DRIVE_SCOPE)) return fail();
         driveToken = response.access_token; driveExpires = Date.now() + Number(response.expires_in) * 1000; driveFolder = "";
         $("driveConnectBtn").disabled = false;
-        setStatus("driveStatus", "已連結 Google Drive，儲存題庫時會上傳教材圖片。", "ok");
+        setStatus("driveStatus", "已連結 Google Drive，可以上傳教材圖片與影片。", "ok");
       }, error_callback: fail});
     client.requestAccessToken({prompt: "select_account"});
   } catch { fail(); }
 };
-function requireDrive() { if (!driveToken || Date.now() >= driveExpires - 30000) throw new Error("請先點擊「連結 Google 雲端硬碟」，再儲存題庫。"); }
+function requireDrive() { if (!driveToken || Date.now() >= driveExpires - 30000) throw new Error("請先點擊「連結 Google 雲端硬碟」，再上傳教材。"); }
 async function driveRequest(path, options = {}) {
   requireDrive();
   const res = await fetch(`https://www.googleapis.com${path}`, {...options, headers: {...options.headers, Authorization: `Bearer ${driveToken}`}});
@@ -301,15 +301,17 @@ function compressImageFile(file) {
       const img = new Image();
       img.onerror = () => reject(new Error("圖片解析失敗"));
       img.onload = () => {
-        const maxSide = 540;
-        const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
-        const w = Math.max(1, Math.round(img.naturalWidth * scale));
-        const h = Math.max(1, Math.round(img.naturalHeight * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
+        try {
+          const maxSide = 540;
+          const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.72));
+        } catch {
+          reject(new Error("圖片無法壓縮，請改用其他圖片。"));
+        }
       };
       img.src = reader.result;
     };
@@ -491,15 +493,18 @@ function bindQuestionEvents() {
   });
   document.querySelectorAll(".qCorrectRadio").forEach(el => {
     el.addEventListener("change", e => {
-      questions[e.target.dataset.idx].correctIndex = Number(e.target.opt);
+      questions[e.target.dataset.idx].correctIndex = Number(e.target.dataset.opt);
       scheduleDraftSave();
     });
   });
   const applyUnifiedMediaFile = async (question, file, fileInputEl) => {
-    if (!file) return;
+    if (!file || !question) return;
+    if ($("saveQuizBtn").disabled) {
+      if (fileInputEl) fileInputEl.value = "";
+      return;
+    }
     const isVideo = file.type === "video/mp4" || (file.type === "" && /\.mp4$/i.test(file.name));
     if (isVideo) {
-      if ($("saveQuizBtn").disabled) return;
       const user = currentUser, version = editorVersion;
       try {
         requireDrive();
@@ -521,6 +526,7 @@ function bindQuestionEvents() {
       }
       return;
     }
+    $("saveQuizBtn").disabled = true;
     try {
       setStatus("editorStatus", "正在壓縮圖片…");
       const image = await compressImageFile(file);
@@ -534,6 +540,7 @@ function bindQuestionEvents() {
     } catch (err) {
       setStatus("editorStatus", err.message, "err");
     } finally {
+      $("saveQuizBtn").disabled = false;
       if (fileInputEl) fileInputEl.value = "";
     }
   };
@@ -575,7 +582,6 @@ function bindQuestionEvents() {
       await applyUnifiedMediaFile(question, file, inputEl);
     });
   });
-});
 }
 
 window.moveQuestion = (idx, dir) => {
@@ -587,6 +593,7 @@ window.moveQuestion = (idx, dir) => {
 };
 
 window.removeQuestion = idx => {
+  if ($("saveQuizBtn").disabled) return;
   if (questions.length <= 1) return;
   questions.splice(idx, 1);
   renderQuestions();
@@ -594,12 +601,14 @@ window.removeQuestion = idx => {
 };
 
 $("addQuestionBtn").onclick = () => {
+  if ($("saveQuizBtn").disabled) return;
   questions.push(createEmptyQuestion());
   renderQuestions();
   scheduleDraftSave();
 };
 
 $("newQuizBtn").onclick = () => {
+  if ($("saveQuizBtn").disabled) return;
   editorVersion++;
   editingQuizId = "";
   applyPlayModeUI("classroom");
@@ -615,7 +624,7 @@ $("quizTitle").addEventListener("input", scheduleDraftSave);
 
 // 儲存題庫至 Firestore
 $("saveQuizBtn").onclick = async () => {
-  if (!currentUser) return;
+  if (!currentUser || $("saveQuizBtn").disabled) return;
   const user = currentUser;
   const version = editorVersion;
   const quizId = editingQuizId;
@@ -723,10 +732,10 @@ function listenMyQuizzes() {
             <div class="quizTitle">${esc(d.title || "未命名題庫")}</div>
             <div class="quizMeta">共 ${count} 題・${modeText}</div>
             <div class="quizActions">
-              <a class="btnLink btnGreen" href="host.html?quiz=${doc.id}" target="_blank" rel="noopener">▶ 開始主持</a>
-              <button type="button" class="btnLight" onclick="loadQuizToEditor('${doc.id}')">編輯</button>
-              <button type="button" class="btnLight" onclick="duplicateQuiz('${doc.id}')">複製</button>
-              <button type="button" class="btnDanger" onclick="deleteQuiz('${doc.id}')">刪除</button>
+              <a class="btnLink btnGreen" href="host.html?quiz=${esc(encodeURIComponent(doc.id))}" target="_blank" rel="noopener">▶ 開始主持</a>
+              <button type="button" class="btnLight" data-quiz-action="loadQuizToEditor" data-quiz-id="${esc(doc.id)}">編輯</button>
+              <button type="button" class="btnLight" data-quiz-action="duplicateQuiz" data-quiz-id="${esc(doc.id)}">複製</button>
+              <button type="button" class="btnDanger" data-quiz-action="deleteQuiz" data-quiz-id="${esc(doc.id)}">刪除</button>
             </div>
           </div>
         `;
@@ -736,7 +745,14 @@ function listenMyQuizzes() {
     });
 }
 
-window.loadQuizToEditor = async id => {
+$("quizList").onclick = event => {
+  const button = event.target.closest("button[data-quiz-action]");
+  if (!button || $("saveQuizBtn").disabled) return;
+  const actions = { loadQuizToEditor, duplicateQuiz, deleteQuiz };
+  actions[button.dataset.quizAction]?.(button.dataset.quizId);
+};
+
+async function loadQuizToEditor(id) {
   const version = ++editorVersion;
   try {
     const snap = await db.collection("quizzes").doc(id).get();
@@ -755,9 +771,9 @@ window.loadQuizToEditor = async id => {
   } catch (e) {
     setStatus("editorStatus", "載入題庫失敗：" + e.message, "err");
   }
-};
+}
 
-window.duplicateQuiz = async id => {
+async function duplicateQuiz(id) {
   try {
     const snap = await db.collection("quizzes").doc(id).get();
     if (!snap.exists) return;
@@ -774,9 +790,9 @@ window.duplicateQuiz = async id => {
   } catch (e) {
     setStatus("editorStatus", "複製失敗：" + e.message, "err");
   }
-};
+}
 
-window.deleteQuiz = async id => {
+async function deleteQuiz(id) {
   if (!confirm("確定刪除此題庫？刪除後無法復原。")) return;
   try {
     await db.collection("quizzes").doc(id).delete();
@@ -785,7 +801,7 @@ window.deleteQuiz = async id => {
   } catch (e) {
     setStatus("editorStatus", "刪除失敗：" + e.message, "err");
   }
-};
+}
 
 // 驗證狀態監聽
 auth.onAuthStateChanged(user => {
