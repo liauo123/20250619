@@ -68,6 +68,41 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 .inGame #studentQuestion:has(#studentVideo:not(.hidden)) #studentQuestionImg{max-height:11dvh!important}.inGame #studentQuestion:has(#studentQuestionImg:not(.hidden)) .studentVideo{height:min(19dvh,180px)}
 @media(max-height:650px){.inGame .padBtn{gap:2px;padding:3px}.inGame .padImage{height:9dvh}.inGame #studentQuestion a{font-size:10px}.inGame .topHud{margin-bottom:3px}.inGame .padGrid{gap:5px}}
 @media (orientation:landscape) and (max-height:600px){.inGame #playView{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto 1fr;gap:5px}.inGame #playView.hidden{display:none!important}.inGame .topHud{grid-column:1/-1}.inGame #studentQuestion{grid-column:1;grid-row:2;align-self:stretch}.inGame #padGrid,.inGame #submittedBanner,.inGame #resultBanner,.inGame #countdownBanner{grid-column:2;grid-row:2}.inGame #playStatus:not(.hidden){grid-column:1/-1;grid-row:3}.inGame .studentVideo{height:min(45dvh,240px)}.inGame #studentQuestionImg{max-height:35dvh!important}.inGame .padImage{height:18dvh}}
+
+/* 強化瀏覽器大小調整、直式螢幕與橫式螢幕自適應 */
+.wrap{max-width:min(960px,100%);min-height:100dvh;height:auto}
+.wrap.inGame{max-width:min(1120px,100%);height:100dvh;overflow-y:auto}
+.inGame #playView{flex:1;min-height:0;display:flex;flex-direction:column}
+.inGame .padGrid{flex:1 1 auto;min-height:clamp(160px,36dvh,460px);height:100%}
+.inGame .padBtn{height:100%;min-height:0;overflow:hidden}
+@media (orientation:portrait){
+  .inGame .topHud{gap:6px;padding:6px 10px}
+  .inGame #studentQuestionImg{max-height:min(22dvh,190px)!important}
+  .inGame .studentVideo{height:min(24dvh,220px)}
+  .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:8px}
+}
+@media (orientation:landscape){
+  .inGame .topHud{padding:4px 10px;margin-bottom:4px}
+  .inGame #studentQuestion{padding:6px 10px;margin:0 0 4px!important}
+  .inGame #studentQuestionText{font-size:clamp(13px,2.8vmin,19px)!important}
+  .inGame #studentQuestionImg{max-height:min(26dvh,160px)!important}
+  .inGame .studentVideo{height:min(30dvh,170px)}
+  .inGame .padGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:6px;min-height:clamp(150px,42dvh,380px)}
+  .inGame .padShape{font-size:clamp(18px,5.5vmin,36px)}
+  .inGame .padLabel{font-size:clamp(12px,3vmin,18px)}
+}
+@media (orientation:landscape) and (max-height:600px){
+  .inGame #playView{display:grid!important;grid-template-columns:minmax(0,0.9fr) minmax(0,1.3fr);grid-template-rows:auto minmax(0,1fr);gap:6px}
+  .inGame #playView.hidden{display:none!important}
+  .inGame .topHud{grid-column:1/-1;grid-row:1}
+  .inGame #studentQuestion{grid-column:1;grid-row:2;align-self:stretch;overflow-y:auto;margin:0!important}
+  .inGame #padGrid,.inGame #submittedBanner,.inGame #resultBanner,.inGame #countdownBanner{grid-column:2;grid-row:2;min-height:0}
+  .inGame #playStatus:not(.hidden){grid-column:1/-1;grid-row:3;margin:0!important}
+  .inGame .studentVideo{height:min(44dvh,220px)}
+  .inGame #studentQuestionImg{max-height:min(34dvh,180px)!important}
+  .inGame .padImage{height:min(16dvh,96px)}
+}
+
 </style>
 </head>
 <body>
@@ -690,6 +725,10 @@ async function init() {
   watchSeats($("pinInput").value);
   $("joinBtn").disabled = false;
 }
+
+
+window.addEventListener("resize", () => { if (room && player) render(); });
+window.addEventListener("orientationchange", () => { setTimeout(() => { if (room && player) render(); }, 120); });
 
 init();
 </script>

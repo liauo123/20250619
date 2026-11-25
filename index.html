@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Kahoot 互動搶答平台｜教師題庫管理</title>
+<title>簡易互動搶答平台｜教師題庫管理</title>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -59,6 +59,7 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
 .imgDrop:hover,.imgDrop.dragover{border-color:var(--purple);background:#f5f3ff}
 .imgPreviewWrap{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
 .imgPreview{max-height:130px;max-width:220px;border-radius:10px;border:1px solid #cbd5e1;object-fit:contain}
+.mediaPreviewFrame{display:block;width:min(100%,280px);aspect-ratio:16/9;border:0;border-radius:10px}
 .optGrid{display:grid;grid-template-columns:1fr;gap:9px;margin-top:10px}
 @media(min-width:640px){.optGrid{grid-template-columns:1fr 1fr}}
 .optBox{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:11px;color:#fff;font-weight:800}
@@ -81,9 +82,9 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
 <header>
   <div class="head">
     <div class="brand">
-      <div class="brandLogo">K!</div>
+      <div class="brandLogo">特</div>
       <div>
-        <h1>Kahoot 互動搶答平台</h1>
+        <h1>簡易互動搶答平台</h1>
         <div class="sub">教師題庫編輯器・即時大螢幕問答</div>
       </div>
     </div>
@@ -393,23 +394,20 @@ function renderQuestions() {
 
       <input type="text" class="qTextInput" data-idx="${idx}" value="${esc(q.text)}" placeholder="輸入題目問題（例如：下列哪一種植物屬於蕨類？）">
 
-      <div class="imgDrop" data-idx="${idx}">
-        <input type="file" accept="image/*" class="qFileInput hidden" data-idx="${idx}">
-        ${q.imageBase64 || q.imageDriveId ? `
+      <div class="imgDrop unifiedMediaDrop" data-idx="${idx}">
+        <input type="file" accept="image/*,video/mp4,.mp4" class="qMediaInput hidden" data-idx="${idx}">
+        ${(q.imageBase64 || q.imageDriveId || q.videoDriveId) ? `
           <div class="imgPreviewWrap">
-            <img class="imgPreview" src="${esc(q.imageBase64 || driveImage(q.imageDriveId))}" alt="題目插圖">
-            ${q.imageDriveId && !q.imageBase64 ? `<a href="${esc(driveView(q.imageDriveId))}" target="_blank" rel="noopener noreferrer">開啟雲端圖片</a>` : ""}
+            ${q.videoDriveId
+              ? `<iframe class="mediaPreviewFrame" title="題目影片預覽" src="https://drive.google.com/file/d/${esc(q.videoDriveId)}/preview" allowfullscreen></iframe><a href="${esc(driveView(q.videoDriveId))}" target="_blank" rel="noopener noreferrer">開啟影片</a>`
+              : `<img class="imgPreview" src="${esc(q.imageBase64 || driveImage(q.imageDriveId))}" alt="題目插圖">${q.imageDriveId && !q.imageBase64 ? `<a href="${esc(driveView(q.imageDriveId))}" target="_blank" rel="noopener noreferrer">開啟雲端圖片</a>` : ""}`
+            }
             <div style="display:grid;gap:6px">
-              <button type="button" class="btnLight qPickImgBtn" data-idx="${idx}">更換圖片</button>
-              <button type="button" class="btnDanger qDelImgBtn" data-idx="${idx}">移除圖片</button>
+              <button type="button" class="btnLight qPickMediaBtn" data-idx="${idx}">更換圖片／影片</button>
+              <button type="button" class="btnDanger qDelMediaBtn" data-idx="${idx}">移除圖片／影片</button>
             </div>
           </div>
-        ` : `<button type="button" class="btnLight qPickImgBtn" data-idx="${idx}">🖼️ 加入題目插圖（也可拖曳圖片到此）</button>`}
-      </div>
-
-      <div class="videoEditor">
-        ${q.videoDriveId ? `<iframe title="題目影片預覽" src="https://drive.google.com/file/d/${esc(q.videoDriveId)}/preview" allowfullscreen></iframe><a href="${esc(driveView(q.videoDriveId))}" target="_blank" rel="noopener noreferrer">開啟影片</a><button type="button" class="btnDanger qRemoveVideo" data-idx="${idx}">移除影片</button>` : ""}
-        <label>🎬 ${q.videoDriveId ? "更換" : "上傳"}題目影片（MP4，30 MB 以內） <input type="file" class="qVideoInput" data-idx="${idx}" accept="video/mp4,.mp4"></label>
+        ` : `<button type="button" class="btnLight qPickMediaBtn" data-idx="${idx}">🖼️🎬 加入圖片／影片（也可拖曳檔案到此）</button>`}
       </div>
       <div class="qMetaRow">
         <div>
@@ -446,26 +444,25 @@ function renderQuestions() {
 }
 
 function bindQuestionEvents() {
-  document.querySelectorAll(".qVideoInput,.qOptFile").forEach(el => el.onchange = async () => {
-    const file = el.files?.[0], q = questions[el.dataset.idx], opt = Number(el.dataset.opt), video = el.classList.contains("qVideoInput");
+  document.querySelectorAll(".qOptFile").forEach(el => el.onchange = async () => {
+    const file = el.files?.[0], q = questions[el.dataset.idx], opt = Number(el.dataset.opt);
     if (!file || !q || $("saveQuizBtn").disabled) return;
     const user = currentUser, version = editorVersion;
     try {
       requireDrive();
-      if (video && (file.type !== "video/mp4" && !(file.type === "" && /\.mp4$/i.test(file.name)) || file.size > 30*1024*1024 || !file.size)) throw new Error("請選擇 30 MB 以內的 MP4 影片。");
       if (!confirm("此教材會上傳至 Google Drive，並開放知道連結的人查看。請確認不含學生個資。是否繼續？")) return;
       $("saveQuizBtn").disabled = true;
       setStatus("editorStatus", "正在上傳教材至 Google Drive…");
-      const id = video ? await uploadDriveMedia(file,"video/mp4","mp4",user,version) : await uploadDriveImage(await compressImageFile(file),user,version);
+      const id = await uploadDriveImage(await compressImageFile(file),user,version);
       if (currentUser !== user || editorVersion !== version || !questions.includes(q)) throw new Error("編輯內容已變更，請重新選擇教材。");
-      if (video) q.videoDriveId = id; else q.optionImageDriveIds[opt] = id;
+      q.optionImageDriveIds[opt] = id;
       saveDraft(); renderQuestions(); setStatus("editorStatus", "教材已上傳，請儲存題庫。", "ok");
     } catch(e) { setStatus("editorStatus", e.message, "err"); } finally { $("saveQuizBtn").disabled = false; el.value = ""; }
   });
-  document.querySelectorAll(".qRemoveVideo,.qRemoveOptImg").forEach(el => el.onclick = () => {
+  document.querySelectorAll(".qRemoveOptImg").forEach(el => el.onclick = () => {
     if ($("saveQuizBtn").disabled) return;
     const q = questions[el.dataset.idx];
-    if (el.classList.contains("qRemoveVideo")) q.videoDriveId = ""; else q.optionImageDriveIds[Number(el.dataset.opt)] = "";
+    q.optionImageDriveIds[Number(el.dataset.opt)] = "";
     renderQuestions(); scheduleDraftSave();
   });
   document.querySelectorAll(".qTextInput").forEach(el => {
@@ -494,44 +491,76 @@ function bindQuestionEvents() {
   });
   document.querySelectorAll(".qCorrectRadio").forEach(el => {
     el.addEventListener("change", e => {
-      questions[e.target.dataset.idx].correctIndex = Number(e.target.dataset.opt);
+      questions[e.target.dataset.idx].correctIndex = Number(e.target.opt);
       scheduleDraftSave();
     });
   });
-  document.querySelectorAll(".qPickImgBtn").forEach(el => {
+  const applyUnifiedMediaFile = async (question, file, fileInputEl) => {
+    if (!file) return;
+    const isVideo = file.type === "video/mp4" || (file.type === "" && /\.mp4$/i.test(file.name));
+    if (isVideo) {
+      if ($("saveQuizBtn").disabled) return;
+      const user = currentUser, version = editorVersion;
+      try {
+        requireDrive();
+        if (file.size > 30*1024*1024 || !file.size) throw new Error("請選擇 30 MB 以內的 MP4 影片。");
+        if (!confirm("此教材會上傳至 Google Drive，並開放知道連結的人查看。請確認不含學生個資。是否繼續？")) return;
+        $("saveQuizBtn").disabled = true;
+        setStatus("editorStatus", "正在上傳教材影片至 Google Drive…");
+        const id = await uploadDriveMedia(file, "video/mp4", "mp4", user, version);
+        if (currentUser !== user || editorVersion !== version || !questions.includes(question)) throw new Error("編輯內容已變更，請重新選擇教材。");
+        question.videoDriveId = id;
+        question.imageBase64 = "";
+        question.imageDriveId = "";
+        saveDraft(); renderQuestions(); setStatus("editorStatus", "影片已上傳，請儲存題庫。", "ok");
+      } catch (e) {
+        setStatus("editorStatus", e.message, "err");
+      } finally {
+        $("saveQuizBtn").disabled = false;
+        if (fileInputEl) fileInputEl.value = "";
+      }
+      return;
+    }
+    try {
+      setStatus("editorStatus", "正在壓縮圖片…");
+      const image = await compressImageFile(file);
+      if (!questions.includes(question)) return;
+      question.imageBase64 = image;
+      question.imageDriveId = "";
+      question.videoDriveId = "";
+      renderQuestions();
+      scheduleDraftSave();
+      setStatus("editorStatus", "圖片已加入並壓縮完成。", "ok");
+    } catch (err) {
+      setStatus("editorStatus", err.message, "err");
+    } finally {
+      if (fileInputEl) fileInputEl.value = "";
+    }
+  };
+  document.querySelectorAll(".qPickMediaBtn").forEach(el => {
     el.addEventListener("click", e => {
       e.stopPropagation();
       const idx = e.currentTarget.dataset.idx;
-      document.querySelector(`.qFileInput[data-idx="${idx}"]`).click();
+      document.querySelector(`.qMediaInput[data-idx="${idx}"]`).click();
     });
   });
-  document.querySelectorAll(".qDelImgBtn").forEach(el => {
+  document.querySelectorAll(".qDelMediaBtn").forEach(el => {
     el.addEventListener("click", e => {
       e.stopPropagation();
+      if ($("saveQuizBtn").disabled) return;
       const idx = e.currentTarget.dataset.idx;
       questions[idx].imageBase64 = "";
       questions[idx].imageDriveId = "";
+      questions[idx].videoDriveId = "";
       renderQuestions();
       scheduleDraftSave();
     });
   });
-  document.querySelectorAll(".qFileInput").forEach(el => {
+  document.querySelectorAll(".qMediaInput").forEach(el => {
     el.addEventListener("change", async e => {
       const question = questions[e.target.dataset.idx];
       const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        setStatus("editorStatus", "正在壓縮圖片…");
-        const image = await compressImageFile(file);
-        if (!questions.includes(question)) return;
-        question.imageBase64 = image;
-        question.imageDriveId = "";
-        renderQuestions();
-        scheduleDraftSave();
-        setStatus("editorStatus", "圖片已加入並壓縮完成。", "ok");
-      } catch (err) {
-        setStatus("editorStatus", err.message, "err");
-      }
+      await applyUnifiedMediaFile(question, file, e.target);
     });
   });
   document.querySelectorAll(".imgDrop").forEach(drop => {
@@ -542,19 +571,11 @@ function bindQuestionEvents() {
       drop.classList.remove("dragover");
       const question = questions[drop.dataset.idx];
       const file = e.dataTransfer?.files?.[0];
-      if (!file) return;
-      try {
-        const image = await compressImageFile(file);
-        if (!questions.includes(question)) return;
-        question.imageBase64 = image;
-        question.imageDriveId = "";
-        renderQuestions();
-        scheduleDraftSave();
-      } catch (err) {
-        setStatus("editorStatus", err.message, "err");
-      }
+      const inputEl = drop.querySelector(".qMediaInput");
+      await applyUnifiedMediaFile(question, file, inputEl);
     });
   });
+});
 }
 
 window.moveQuestion = (idx, dir) => {

@@ -593,9 +593,9 @@ function renderQuestion() {
   if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
   // 教室內使用：host 只顯示題目，不顯示 4 個選項（揭曉答案時才顯示）
-  $("optionsGrid").classList.toggle("hidden", isClassroom && !isReveal);
+  $("optionsGrid").classList.toggle("hidden", isClassroom);
   $("livePromptText").textContent = isClassroom && !isReveal
-    ? "教室內作答模式：題目朗讀完畢後，學生手機倒數 3 秒將顯示 4 個選項！"
+    ? "教室內使用模式：主持人畫面不顯示選項，請學生在手機上作答！"
     : "請學生在手機上點擊對應顏色的幾何按鈕！";
 
   question.options.forEach((option, index) => {
