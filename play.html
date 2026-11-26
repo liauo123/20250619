@@ -74,6 +74,13 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
 @media(prefers-reduced-motion:reduce){.remoteFeedback #resultIcon{animation:none!important}}
 .answerControls{min-width:0;flex:1;display:flex;flex-direction:column}
 #voiceAnswerPanel{text-align:center;margin:0 0 8px}
+#voiceListeningAnimation{display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-right:8px;color:var(--purple);vertical-align:middle}
+#voiceListeningAnimation i{display:block;width:6px;height:26px;border-radius:4px;background:currentColor;animation:voiceWave .8s ease-in-out infinite alternate}
+#voiceListeningAnimation i:nth-child(2){animation-delay:.12s}
+#voiceListeningAnimation i:nth-child(3){animation-delay:.24s}
+#voiceListeningAnimation i:nth-child(4){animation-delay:.36s}
+@keyframes voiceWave{from{transform:scaleY(.3)}to{transform:scaleY(1)}}
+@media(prefers-reduced-motion:reduce){#voiceListeningAnimation i{animation:none}}
 #startVoiceBtn{background:var(--purple);color:white;padding:8px 14px;min-height:42px;font-size:15px}
 #voiceAnswerStatus{font-size:13px;margin:5px 0 0}
 #studentQuestion a{font-size:12px;display:inline-block}
@@ -161,6 +168,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     <!-- 四色按鍵區 -->
     <div id="answerControls" class="answerControls hidden">
       <div id="voiceAnswerPanel" class="hidden">
+        <span id="voiceListeningAnimation" class="hidden" role="img" aria-label="麥克風收音中"><i></i><i></i><i></i><i></i></span>
         <button id="startVoiceBtn" type="button">🎙 開始說答案</button>
         <p id="voiceAnswerStatus" role="status">請說「選項一」到「選項四」，也可以說出選項文字。</p>
       </div>
@@ -227,7 +235,9 @@ const db = app.firestore();
 // 使用長輪詢，避免會緩衝串流回應的網路設備讓 Firestore 誤判離線。
 db.settings({ merge: true, experimentalAutoDetectLongPolling: false, experimentalForceLongPolling: true });
 const stamp = firebase.firestore.FieldValue.serverTimestamp;
-const $ = id => document.getElementById(id);
+const joinViewElement = document.getElementById("joinView");
+const $ = id => document.getElementById(id) ||
+  (id === "joinView" ? joinViewElement : joinViewElement.querySelector("#" + id));
 const buttons = [...document.querySelectorAll(".padBtn")];
 
 let student;
@@ -395,6 +405,11 @@ function showOptionImage(image, value) {
 
 function showView(active) {
   const wrap = document.querySelector(".wrap");
+  if (active === "joinView") {
+    if (!joinViewElement.isConnected) wrap.prepend(joinViewElement);
+  } else if (joinViewElement.isConnected) {
+    joinViewElement.remove();
+  }
   wrap.classList.toggle("inGame", active !== "joinView");
   if (active !== "playView") {
     stopVoiceRecognition();
@@ -853,6 +868,7 @@ function recognizeChoice(text, options) {
 }
 
 function stopVoiceRecognition() {
+  $("voiceListeningAnimation").classList.add("hidden");
   if (!voiceRecognition) return;
   const session = voiceRecognition;
   voiceRecognition = null;
@@ -902,6 +918,9 @@ function startVoiceAnswer() {
     session.continuous = false;
     session.interimResults = false;
     voiceRecognition = session;
+    session.onstart = () => {
+      if (voiceRecognition === session) $("voiceListeningAnimation").classList.remove("hidden");
+    };
     $("startVoiceBtn").textContent = "停止辨識";
     status.textContent = "正在聽，請說出答案…";
     session.onresult = event => {
