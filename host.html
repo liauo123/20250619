@@ -146,9 +146,10 @@ main{flex:1;max-width:1280px;width:100%;margin:auto;padding:20px 18px 36px;displ
   <section id="questionView" class="hidden">
     <div class="stageTop">
       <span id="qProgressBadge" class="qBadge">第 1 / 1 題</span>
-      <div style="display:flex;gap:10px">
-        <button id="revealNowBtn" class="btnBlue" type="button">⏹ 提前揭曉答案</button>
-        <button id="nextStepBtn" class="btnGreen hidden" type="button">📊 查看排行榜</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button id="revealNowBtn" class="btnBlue" type="button">提前揭曉答案</button>
+        <button id="stageNextQuestionBtn" class="btnPrimary hidden" type="button">下一題</button>
+        <button id="nextStepBtn" class="btnGreen hidden" type="button">查看即時排行榜</button>
       </div>
     </div>
 
@@ -413,8 +414,13 @@ function setControls() {
   $("endAllBtn").classList.toggle("hidden", !canFinish);
   $("endAllBtn").disabled = busy || !canFinish;
   $("startGameBtn").disabled = busy || !playersReady || !players.length;
-  for (const id of ["revealNowBtn", "nextStepBtn", "nextQuestionBtn", "exportCsvBtn", "endRoomBtn", "finishCleanupBtn"]) {
+  for (const id of ["revealNowBtn", "stageNextQuestionBtn", "nextStepBtn", "nextQuestionBtn", "exportCsvBtn", "endRoomBtn", "finishCleanupBtn"]) {
     $(id).disabled = busy;
+  }
+  const classroom = room && (room.playMode || "classroom") === "classroom";
+  if (classroom) {
+    $("revealNowBtn").disabled = busy || room.status === "reveal";
+    $("stageNextQuestionBtn").disabled = busy || room.currentIndex + 1 >= room.questions.length;
   }
 }
 
@@ -710,10 +716,11 @@ function renderQuestion() {
   $("stageQuestionBox").classList.toggle("hidden", !isClassroom);
   $("remoteProgress").classList.toggle("hidden", isClassroom);
   $("liveHud").classList.toggle("hidden", room.selfPaced || room.status !== "question");
-  $("revealNowBtn").classList.toggle("hidden", isReveal || room.selfPaced);
-  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : isClassroom ? "⏹ 提前揭曉答案" : "⏹ 結束本題作答";
-  $("nextStepBtn").classList.toggle("hidden", !isReveal);
-  $("nextStepBtn").textContent = room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
+  $("revealNowBtn").classList.toggle("hidden", !isClassroom && (isReveal || room.selfPaced));
+  $("revealNowBtn").textContent = room.status === "grading" ? "繼續結算本題" : isClassroom ? "提前揭曉答案" : "⏹ 結束本題作答";
+  $("stageNextQuestionBtn").classList.toggle("hidden", !isClassroom);
+  $("nextStepBtn").classList.toggle("hidden", !isClassroom && !isReveal);
+  $("nextStepBtn").textContent = isClassroom ? "查看即時排行榜" : room.currentIndex + 1 === room.questions.length ? "🏆 查看最終頒獎台" : "📊 查看即時排行榜";
   if (!isClassroom) {
     $("optionsGrid").classList.add("hidden");
     $("stageVideo").removeAttribute("src");
@@ -736,11 +743,9 @@ function renderQuestion() {
   frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
   if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
-  // 教室內使用：host 只顯示題目，不顯示 4 個選項（揭曉答案時才顯示）
-  $("optionsGrid").classList.toggle("hidden", !isReveal);
-  $("livePromptText").textContent = isClassroom && !isReveal
-    ? "教室內使用模式：主持人畫面不顯示選項，請學生在手機上作答！"
-    : "請學生在手機上點擊對應的選項！";
+  // 教室內使用：直接顯示題目及四個選項，揭曉時才標示正解。
+  $("optionsGrid").classList.remove("hidden");
+  $("livePromptText").textContent = "請學生在手機上點擊對應的選項！";
 
   question.options.forEach((option, index) => {
     $("optText_" + index).textContent = option;
@@ -926,13 +931,13 @@ async function finalizeRemoteRoom(ref, expectedStatus) {
   });
 }
 
-function closeQuestion(finishAll = false) {
+function closeQuestion(finishAll = false, destination = "reveal") {
   if (room?.selfPaced) return finishRemoteRoom();
   return run(async () => {
     const index = room.currentIndex;
     const frozen = await db.runTransaction(async transaction => {
       const current = (await transaction.get(roomRef)).data();
-      const canGrade = finishAll ? canFinishAll(current?.status) : ["question", "grading"].includes(current?.status);
+      const canGrade = finishAll ? canFinishAll(current?.status) : ["question", "grading"].includes(current?.status) || (destination !== "reveal" && current?.status === "reveal");
       if (!canGrade || current.currentIndex !== index) return null;
       if (current.status !== "grading") transaction.update(roomRef, { status: "grading" });
       return current;
@@ -973,15 +978,16 @@ function closeQuestion(finishAll = false) {
 
     const remote = frozen.playMode === "remote";
     const last = index + 1 === frozen.questions.length;
-    const finished = finishAll || (remote && last);
+    const finished = finishAll || (remote && last) || (!remote && last && destination !== "reveal");
     if (finished) await saveFinalRanks();
     await db.runTransaction(async transaction => {
       const current = (await transaction.get(roomRef)).data();
       if (current?.status !== "grading" || current.currentIndex !== index) return;
-      if (remote && !finished) {
+      if ((remote || destination === "next") && !finished) {
         transaction.update(roomRef, openQuestionFields(index + 1));
       } else {
-        transaction.update(roomRef, { status: finished ? "finished" : "reveal", revealedAnswer: correct });
+        const status = finished ? "finished" : destination === "leaderboard" ? "leaderboard" : "reveal";
+        transaction.update(roomRef, { status, revealedAnswer: correct });
       }
     });
   });
@@ -1247,7 +1253,11 @@ $("copyJoinUrlBtn").onclick = async () => {
 $("startGameBtn").onclick = () => startQuestion(0);
 $("revealNowBtn").onclick = () => closeQuestion();
 $("endAllBtn").onclick = () => closeQuestion(true);
-$("nextStepBtn").onclick = advanceFromReveal;
+$("stageNextQuestionBtn").onclick = () => closeQuestion(false, "next");
+$("nextStepBtn").onclick = () => {
+  if ((room?.playMode || "classroom") === "classroom") closeQuestion(false, "leaderboard");
+  else advanceFromReveal();
+};
 $("nextQuestionBtn").onclick = () => startQuestion(room.currentIndex + 1);
 $("exportCsvBtn").onclick = () => run(exportCsv);
 $("endRoomBtn").onclick = closeRoom;

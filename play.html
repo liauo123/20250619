@@ -94,14 +94,27 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
   .inGame .padLabel{font-size:clamp(12px,3vmin,18px)}
 }
 
+/* 加入遊戲：依瀏覽器可用高度調整座號與表單，不影響作答畫面 */
+.wrap:not(.inGame){max-width:100%;min-height:100vh;min-height:100dvh;justify-content:center}
+#joinView{width:min(100%,960px);margin:0 auto;padding:clamp(8px,2.5vmin,22px)}
+#joinView input{min-height:clamp(34px,7dvh,52px);margin:clamp(3px,1dvh,8px) 0;font-size:clamp(16px,3vmin,18px)}
+#joinView .seatGrid{gap:clamp(3px,1dvh,7px);margin:clamp(4px,1dvh,10px) 0}
+#joinView .seatBtn{min-height:clamp(28px,6.5dvh,56px);padding:2px;font-size:clamp(13px,2.8vmin,18px)}
+#joinView .btnJoin{min-height:clamp(34px,7dvh,54px);margin-top:5px}
+#joinView .status{margin-top:5px;padding:clamp(4px,1.4dvh,11px)}
+@media(min-width:600px){#joinView .seatGrid{grid-template-columns:repeat(10,minmax(0,1fr))}}
+@media(max-height:430px) and (min-width:600px){
+  .wrap:not(.inGame){padding:4px max(6px,env(safe-area-inset-right)) 4px max(6px,env(safe-area-inset-left))}
+  #joinView{padding:6px}
+  #joinView .seatBtn{min-height:28px}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
   <!-- 1. 加入房間畫面 -->
   <section id="joinView" class="card">
-    <h1 style="text-align:center;color:var(--purple);margin:0 0 6px;font-size:26px">加入搶答遊戲</h1>
-    <div style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:12px">輸入大螢幕上的 6 位數房號，並選擇座號或輸入暱稱</div>
+    <div style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:12px">輸入大螢幕上的 6 位數字</div>
 
     <input id="pinInput" type="tel" aria-label="房號" inputmode="numeric" maxlength="6" placeholder="輸入 6 位數房間 PIN 碼">
 
