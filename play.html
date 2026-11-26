@@ -251,6 +251,10 @@ let generation = 0;
 let threeSecTimer = null;
 let spokenRemoteKey = "";
 let remoteUtterance = null;
+let remoteSpeechTimer = null;
+let remoteNarrationCompletedKey = "";
+let remoteNarrationFailedKey = "";
+let speechPrimed = false;
 let remoteIndex = null;
 let remoteFeedbackTimer = null;
 const REMOTE_FEEDBACK_MS = 900;
@@ -263,48 +267,99 @@ function clearThreeSecCountdown() {
   threeSecTimer = null;
 }
 
+function remoteQuestionKey(index) {
+  return (roomRef?.id || "") + ":" + index;
+}
+
+function primeQuestionSpeech() {
+  if (speechPrimed) return;
+  const speech = window.speechSynthesis;
+  if (!speech || typeof SpeechSynthesisUtterance === "undefined") return;
+  try {
+    // 加入遊戲的點擊是使用者操作，先初始化語音播放。
+    const silent = new SpeechSynthesisUtterance("準備");
+    silent.lang = "zh-TW";
+    silent.volume = 0;
+    speech.resume?.();
+    speech.speak(silent);
+    speechPrimed = true;
+  } catch {}
+}
+
 function stopRemoteSpeech() {
+  clearTimeout(remoteSpeechTimer);
+  remoteSpeechTimer = null;
   if (!remoteUtterance) return;
   remoteUtterance = null;
   try { window.speechSynthesis?.cancel(); } catch {}
 }
 
 function speakRemoteQuestion(index, text, replay = false) {
-  const key = (roomRef?.id || "") + ":" + index;
+  const key = remoteQuestionKey(index);
   if (!replay && spokenRemoteKey === key) return;
   spokenRemoteKey = key;
+  remoteNarrationCompletedKey = "";
+  remoteNarrationFailedKey = "";
   stopRemoteSpeech();
   const chunks = String(text || "").trim().match(/[^。！？!?\n]{1,42}[。！？!?]*|[。！？!?]+/gu);
   const speech = window.speechSynthesis;
-  if (!chunks?.length || !speech || typeof SpeechSynthesisUtterance === "undefined") return;
   const button = $("readQuestionBtn");
-  button.textContent = "🔊 朗讀題目";
+  if (!chunks?.length || !speech || typeof SpeechSynthesisUtterance === "undefined") {
+    button.textContent = "無法使用題目朗讀";
+    return;
+  }
+  button.textContent = "🔊 正在朗讀題目…";
+
   function speakPart(part) {
     if (part === chunks.length) {
       remoteUtterance = null;
+      remoteNarrationCompletedKey = key;
+      button.textContent = "🔊 朗讀題目";
       maybeStartVoiceAnswer();
       return;
     }
     const utterance = new SpeechSynthesisUtterance(chunks[part]);
     utterance.lang = "zh-TW";
     remoteUtterance = utterance;
-    const onError = () => {
-      if (remoteUtterance !== utterance) return;
-      remoteUtterance = null;
-      button.textContent = "🔊 點此朗讀題目";
-      maybeStartVoiceAnswer();
+    const active = () => remoteUtterance === utterance;
+    const clearStartTimer = () => {
+      if (!active()) return;
+      clearTimeout(remoteSpeechTimer);
+      remoteSpeechTimer = null;
     };
+    const onError = () => {
+      if (!active()) return;
+      stopRemoteSpeech();
+      remoteNarrationFailedKey = key;
+      button.textContent = "🔊 點此朗讀題目";
+    };
+    utterance.onstart = clearStartTimer;
+    utterance.onboundary = clearStartTimer;
     utterance.onend = () => {
-      if (remoteUtterance === utterance) speakPart(part + 1);
+      if (!active()) return;
+      clearStartTimer();
+      speakPart(part + 1);
     };
     utterance.onerror = onError;
+    // 僅偵測尚未啟動的朗讀，已開始的長題目完整念完。
+    remoteSpeechTimer = setTimeout(onError, 8000);
     try {
+      speech.resume?.();
       speech.speak(utterance);
     } catch {
       onError();
     }
   }
   speakPart(0);
+}
+
+function retryRemoteNarration() {
+  const index = activeQuestionIndex();
+  if (room?.playMode !== "remote" || room.status !== "question" || answer ||
+      sendingIndex === index || voiceRecognition || remoteUtterance ||
+      remoteNarrationFailedKey !== remoteQuestionKey(index)) return;
+  const question = room.questions[index];
+  if (question) speakRemoteQuestion(index, question.text, true);
 }
 
 $("readQuestionBtn").onclick = () => {
@@ -465,6 +520,7 @@ function resetSession(message, preservePin = false) {
   clearThreeSecCountdown();
   stopRemoteSpeech();
   spokenRemoteKey = "";
+  remoteNarrationCompletedKey = remoteNarrationFailedKey = "";
   voiceAutoIndex = -1;
   clearTimeout(remoteFeedbackTimer);
   remoteFeedbackTimer = null;
@@ -527,6 +583,7 @@ async function joinRoom() {
   if (!/^\d{6}$/.test(pin)) return joinStatus("請輸入 6 位數房間 PIN 碼。", true);
   if (!name) return joinStatus("請選擇座號或輸入暱稱。", true);
 
+  primeQuestionSpeech();
   $("joinBtn").disabled = true;
   joinStatus("正在加入房間…");
   try {
@@ -817,6 +874,7 @@ function voiceAnswerAvailable(index) {
 function maybeStartVoiceAnswer() {
   const index = activeQuestionIndex();
   if (voiceRecognition || remoteUtterance || voiceAutoIndex === index || !voiceAnswerAvailable(index)) return;
+  if (room.playMode === "remote" && remoteNarrationCompletedKey !== remoteQuestionKey(index)) return;
   startVoiceAnswer();
 }
 
@@ -961,7 +1019,10 @@ $("joinBtn").onclick = joinRoom;
 for (const id of ["pinInput", "nameInput"]) {
   $(id).onkeydown = event => { if (event.key === "Enter") joinRoom(); };
 }
-document.addEventListener("click", unlockAudio);
+document.addEventListener("click", () => {
+  unlockAudio();
+  retryRemoteNarration();
+});
 $("leaveBtn").onclick = async () => {
   const ref = playerRef;
   resetSession("已離開遊戲，可以輸入新的房號。");
