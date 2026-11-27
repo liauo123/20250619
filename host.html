@@ -338,7 +338,8 @@ function splitNarration(text) {
   for (const char of text) {
     chunk += char;
     length++;
-    if (length >= 42 || /[。！？；!?\n]/.test(char)) {
+    if (length >= 42 || /[。！？；!?
+]/.test(char)) {
       if (chunk.trim()) chunks.push(chunk);
       chunk = "";
       length = 0;
@@ -466,7 +467,8 @@ async function createRoom(quizId) {
       timeLimit: STANDARD_SCORING_MS / 1000,
       pointsMode: "standard"
     }));
-    const voiceAnswer = quiz.voiceAnswer === true;
+    const voiceOnly = quiz.voiceOnly === true;
+    const voiceAnswer = quiz.voiceAnswer === true || voiceOnly;
     const playMode = quiz.playMode === "remote" ? "remote" : "classroom";
     const data = {
       teacherId: teacher.uid,
@@ -475,6 +477,7 @@ async function createRoom(quizId) {
       playMode,
       ...(playMode === "remote" ? { selfPaced: true } : {}),
       ...(voiceAnswer ? { voiceAnswer: true } : {}),
+      ...(voiceOnly ? { voiceOnly: true } : {}),
       narrationDoneIndex: -1,
       questions,
       status: "lobby",
@@ -566,8 +569,8 @@ function attachRoom(ref, keys) {
 }
 
 function renderLobby() {
-  const modeLabel = (room.playMode === "remote" ? "遠端使用" : "教室內使用") +
-    (room.voiceAnswer === true ? "・語音辨識" : "");
+  const voiceLabel = room.voiceOnly === true ? "・只能語音回答" : room.voiceAnswer === true ? "・語音辨識" : "";
+  const modeLabel = (room.playMode === "remote" ? "遠端使用" : "教室內使用") + voiceLabel;
   $("lobbyQuizTitle").textContent = room.title + "（共 " + room.questions.length + " 題・" + modeLabel + "）";
   $("lobbyPlayerCount").textContent = "目前等待人數：" + players.length + " 人";
   const order = [...players].sort((a, b) => (a.seatNumber || 99) - (b.seatNumber || 99));
@@ -745,7 +748,9 @@ function renderQuestion() {
 
   // 教室內使用：直接顯示題目及有內容的選項，揭曉時才標示正解。
   $("optionsGrid").classList.remove("hidden");
-  $("livePromptText").textContent = "請學生在手機上點擊對應的選項！";
+  $("livePromptText").textContent = room.voiceOnly === true
+    ? "請學生在手機上透過語音說出答案！"
+    : "請學生在手機上點擊對應的選項！";
 
   question.options.forEach((option, index) => {
     const card = $("optCard_" + index), id = mediaId(question.optionImageDriveIds?.[index]);
@@ -793,7 +798,9 @@ function renderOptionCounts() {
 
 function showOpenQuestion() {
   $("timerCircle").textContent = "∞";
-  $("livePromptText").textContent = "不限時作答，請在手機上點擊對應選項。";
+  $("livePromptText").textContent = room?.voiceOnly === true
+    ? "不限時作答，請學生在手機上用語音說出答案。"
+    : "不限時作答，請在手機上點擊對應選項。";
 }
 
 function startPrepareCountdown() {
@@ -1094,7 +1101,7 @@ function renderRoom() {
 
 function csvCell(value) {
   let text = String(value ?? "");
-  if (typeof value === "string" && /^[\s\uFEFF]*[=+@-]/.test(text)) text = "'" + text;
+  if (typeof value === "string" && /^[\s﻿]*[=+@-]/.test(text)) text = "'" + text;
   return '"' + text.replace(/"/g, '""') + '"';
 }
 
@@ -1105,12 +1112,13 @@ async function exportCsv() {
     p.rank, p.seatNumber, p.displayName, p.totalScore, p.correctCount || 0,
     room.questions.length, p.onlineStatus === "left" ? "曾離開頁面" : "未回報離開"
   ]);
-  const blob = new Blob(["\uFEFF" + [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n")],
+  const blob = new Blob(["﻿" + [header, ...rows].map(row => row.map(csvCell).join(",")).join("
+")],
     { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = room.title.replace(/[\\/:*?"<>|]/g, "_") + "_" + roomRef.id + ".csv";
+  link.download = room.title.replace(/[\/:*?"<>|]/g, "_") + "_" + roomRef.id + ".csv";
   document.body.append(link);
   link.click();
   link.remove();
@@ -1200,8 +1208,8 @@ async function loadSetup() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "btnPrimary";
-    const modeText = (quiz.playMode === "remote" ? "遠端使用" : "教室內使用") +
-      (quiz.voiceAnswer === true ? "・語音辨識" : "");
+    const voiceText = quiz.voiceOnly === true ? "・只能語音回答" : quiz.voiceAnswer === true ? "・語音辨識" : "";
+    const modeText = (quiz.playMode === "remote" ? "遠端使用" : "教室內使用") + voiceText;
     button.textContent = (quiz.title || "未命名題庫") + "（" + (quiz.questions?.length || 0) + " 題・" + modeText + "）▶";
     button.onclick = () => createRoom(doc.id);
     return button;
