@@ -227,16 +227,7 @@ async function uploadDriveMedia(bytes, mime, extension, user, version) {
   guard();
   const boundary = "classroom_" + crypto.randomUUID();
   const metadata = {name:`question-${crypto.randomUUID()}.${extension}`,mimeType:mime,parents:[folder]};
-  const body = new Blob([`--${boundary}
-Content-Type: application/json; charset=UTF-8
-
-${JSON.stringify(metadata)}
---${boundary}
-Content-Type: ${mime}
-
-`,bytes,`
---${boundary}--
-`]);
+  const body = new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`,bytes,`\r\n--${boundary}--\r\n`]);
   let file;
   if (mime === "video/mp4") {
     requireDrive();
@@ -777,8 +768,7 @@ $("saveQuizBtn").onclick = async () => {
     }
     scheduleDraftSave();
   } catch (e) {
-    if (currentUser === user && editorVersion === version) setStatus("editorStatus", "儲存失敗：
-" + (e.message || e), "err");
+    if (currentUser === user && editorVersion === version) setStatus("editorStatus", "儲存失敗：\n" + (e.message || e), "err");
   } finally {
     $("saveQuizBtn").disabled = false;
   }
