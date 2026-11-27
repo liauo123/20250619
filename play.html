@@ -319,8 +319,7 @@ function speakRemoteQuestion(index, text, replay = false) {
   remoteNarrationCompletedKey = "";
   remoteNarrationFailedKey = "";
   stopRemoteSpeech();
-  const chunks = String(text || "").trim().match(/[^。！？!?
-]{1,42}[。！？!?]*|[。！？!?]+/gu);
+  const chunks = String(text || "").trim().match(/[^。！？!?\n]{1,42}[。！？!?]*|[。！？!?]+/gu);
   const speech = window.speechSynthesis;
   const button = $("readQuestionBtn");
   if (!chunks?.length || !speech || typeof SpeechSynthesisUtterance === "undefined") {
