@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Kahoot 互動搶答平台｜主持人投影大螢幕</title>
+<title>互動搶答平台｜主持人投影大螢幕</title>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -743,20 +743,22 @@ function renderQuestion() {
   frame.classList.toggle("hidden", !vid); videoLink.classList.toggle("hidden", !vid);
   if (vid) { if (frame.getAttribute("src") !== videoSrc) frame.src = videoSrc; videoLink.href = `https://drive.google.com/file/d/${vid}/view`; } else { frame.removeAttribute("src"); videoLink.removeAttribute("href"); }
 
-  // 教室內使用：直接顯示題目及四個選項，揭曉時才標示正解。
+  // 教室內使用：直接顯示題目及有內容的選項，揭曉時才標示正解。
   $("optionsGrid").classList.remove("hidden");
   $("livePromptText").textContent = "請學生在手機上點擊對應的選項！";
 
   question.options.forEach((option, index) => {
-    $("optText_" + index).textContent = option;
     const card = $("optCard_" + index), id = mediaId(question.optionImageDriveIds?.[index]);
+    const hasContent = Boolean(String(option || "").trim() || id);
+    card.classList.toggle("hidden", !hasContent);
+    $("optText_" + index).textContent = option;
     let picture = card.querySelector(".hostOptionImage");
     if (!picture) { picture = document.createElement("img"); picture.className = "hostOptionImage hidden"; picture.alt = `選項 ${index+1} 圖片`; card.insertBefore(picture, $("optText_" + index)); }
     picture.classList.toggle("hidden", !id);
     if (id) { const url = `https://drive.google.com/thumbnail?id=${id}&sz=w540`; if (picture.getAttribute("src") !== url) picture.src = url; } else picture.removeAttribute("src");
     const correct = isReveal && index === room.revealedAnswer;
-    $("optCard_" + index).classList.toggle("correctGlow", correct);
-    $("optCard_" + index).classList.toggle("dimmed", isReveal && !correct);
+    card.classList.toggle("correctGlow", correct);
+    card.classList.toggle("dimmed", isReveal && !correct);
     $("optMark_" + index).textContent = correct ? "✓" : "";
   });
   $("optionsGrid").classList.toggle("showCounts", isReveal);

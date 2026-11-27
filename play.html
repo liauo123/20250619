@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#46178f">
-<title>Kahoot 學生搶答器</title>
+<title>學生搶答器</title>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -162,7 +162,7 @@ button:focus-visible{outline:3px solid #111827;outline-offset:3px}
     <div id="countdownBanner" class="fullBanner bannerWait hidden">
       <div style="font-size:18px;font-weight:900;opacity:.92;margin-bottom:10px">題目已念完，準備作答！</div>
       <div id="threeSecNum" class="countdownNum">3</div>
-      <p style="margin-top:14px;opacity:.88">倒數結束後顯示 4 個選項</p>
+      <p style="margin-top:14px;opacity:.88">倒數結束後顯示選項</p>
     </div>
 
     <!-- 四色按鍵區 -->
@@ -407,8 +407,10 @@ function showView(active) {
   const wrap = document.querySelector(".wrap");
   if (active === "joinView") {
     if (!joinViewElement.isConnected) wrap.prepend(joinViewElement);
-  } else if (joinViewElement.isConnected) {
-    joinViewElement.remove();
+    joinViewElement.classList.remove("hidden");
+  } else {
+    joinViewElement.classList.add("hidden");
+    if (joinViewElement.isConnected) joinViewElement.remove();
   }
   wrap.classList.toggle("inGame", active !== "joinView");
   if (active !== "playView") {
@@ -418,7 +420,7 @@ function showView(active) {
     clearThreeSecCountdown();
     stopRemoteSpeech();
   }
-  for (const id of ["joinView", "lobbyView", "playView", "finishView"]) {
+  for (const id of ["lobbyView", "playView", "finishView"]) {
     $(id).classList.toggle("hidden", id !== active);
   }
 }
@@ -628,6 +630,7 @@ async function joinRoom() {
       });
       if (seatRef) transaction.set(seatRef, { uid: student.uid });
     });
+    showView("lobbyView");
     connect(ref);
   } catch (error) {
     joinStatus(error.message || "加入失敗，請重試。", true);
@@ -746,7 +749,7 @@ function render() {
   }
   if (!(room.status === "grading" && player.lastScoredIndex === index)) $("playScore").textContent = player.totalScore + " 分";
 
-  // 遠端模式顯示題目語音、文字、圖片、影片；教室內模式由大螢幕顯示題目，學生端專注於倒數與 4 個選項
+  // 遠端模式顯示題目語音、文字、圖片、影片；教室內模式由大螢幕顯示題目，學生端專注於倒數與選項
   $("studentQuestion").classList.toggle("hidden", !isRemote);
   if (isRemote) {
     $("studentQuestionText").textContent = question.text;
@@ -788,7 +791,7 @@ function render() {
 
     if (waitingForNarration) {
       $("submittedBanner").querySelector("h2").textContent = "主持人正在念題目…";
-      $("submittedMessage").textContent = "題目念完後將倒數 3 秒並顯示 4 個選項";
+      $("submittedMessage").textContent = "題目念完後將倒數 3 秒並顯示選項";
     } else {
       $("submittedBanner").querySelector("h2").textContent = sending ? "正在送出答案…" : "已送出答案！";
       $("submittedMessage").textContent = isRemote ? "全員作答後會自動進入下一題或顯示最終成績。" : "正在等待其他同學作答與大螢幕揭曉…";
@@ -797,10 +800,13 @@ function render() {
     for (const button of buttons) {
       const choice = Number(button.dataset.choice);
       const label = question.options[choice];
+      const optImgId = mediaId(question.optionImageDriveIds?.[choice]);
+      const hasContent = Boolean(String(label || "").trim() || optImgId);
+      button.classList.toggle("hidden", !hasContent);
       $("padLabel_" + choice).textContent = label;
       button.setAttribute("aria-label", label || "選項 " + (choice + 1));
-      showOptionImage($("padImage_" + choice), question.optionImageDriveIds?.[choice]);
-      button.disabled = !answerReady || countingDown || waitingForNarration || sending || Boolean(answer);
+      showOptionImage($("padImage_" + choice), optImgId);
+      button.disabled = !hasContent || !answerReady || countingDown || waitingForNarration || sending || Boolean(answer);
     }
     const voiceEnabled = choices && room.voiceAnswer === true;
     $("voiceAnswerPanel").classList.toggle("hidden", !voiceEnabled);
@@ -848,7 +854,11 @@ function normalizeSpokenChoice(text) {
   return String(text ?? "").normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
 }
 
-function recognizeChoice(text, options) {
+function recognizeChoice(text, question) {
+  const options = question.options || [];
+  const validIndices = [0, 1, 2, 3].filter(i =>
+    Boolean(String(options[i] || "").trim() || mediaId(question.optionImageDriveIds?.[i]))
+  );
   const spoken = normalizeSpokenChoice(text);
   if (!spoken) return -1;
   const aliases = [["1","一","壹","a","a選項"], ["2","二","兩","貳","b","b選項"],
@@ -857,13 +867,13 @@ function recognizeChoice(text, options) {
   const short = spoken.replace(/^(?:我選(?:擇)?|答案(?:是|為)?)/, "")
     .replace(/^(?:選項|選擇?|第)/, "").replace(/(?:個選項|個|號)$/, "");
   const alias = aliases.findIndex(values => values.includes(short));
-  if (command && alias >= 0) return alias;
+  if (command && alias >= 0 && validIndices.includes(alias)) return alias;
   const matches = [];
-  for (const [index, option] of options.entries()) {
-    const label = normalizeSpokenChoice(option);
+  for (const index of validIndices) {
+    const label = normalizeSpokenChoice(options[index]);
     if (label && (label === spoken || (command && label === short))) matches.push(index);
   }
-  if (alias >= 0 && !matches.includes(alias)) matches.push(alias);
+  if (alias >= 0 && validIndices.includes(alias) && !matches.includes(alias)) matches.push(alias);
   return matches.length === 1 ? matches[0] : -1;
 }
 
@@ -926,7 +936,7 @@ function startVoiceAnswer() {
     session.onresult = event => {
       if (voiceRecognition !== session || !voiceAnswerAvailable(index)) return;
       const text = event.results[event.resultIndex][0].transcript;
-      const choice = recognizeChoice(text, room.questions[index].options);
+      const choice = recognizeChoice(text, room.questions[index]);
       stopVoiceRecognition();
       if (choice < 0) {
         status.textContent = `聽到「${text}」，請再說一次，例如「選項一」。`;
@@ -1075,6 +1085,7 @@ async function init() {
         ref.collection("players").doc(student.uid).get({ source: "server" })
       ]);
       if (active.exists && active.data().status !== "closed" && member.exists && member.data().onlineStatus !== "left") {
+        showView("lobbyView");
         connect(ref);
         return;
       }
@@ -1086,8 +1097,6 @@ async function init() {
   watchSeats($("pinInput").value);
   $("joinBtn").disabled = false;
 }
-
-
 
 init();
 </script>

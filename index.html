@@ -61,7 +61,8 @@ button:disabled{opacity:.55;cursor:not-allowed;transform:none}
 .mediaPreviewFrame{display:block;width:min(100%,280px);aspect-ratio:16/9;border:0;border-radius:10px}
 .optGrid{display:grid;grid-template-columns:1fr;gap:9px;margin-top:10px}
 @media(min-width:640px){.optGrid{grid-template-columns:1fr 1fr}}
-.optBox{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:11px;color:#fff;font-weight:800}
+.optBox{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:11px;color:#fff;font-weight:800;transition:.15s}
+.optBox.dragover{outline:3px dashed #fff;outline-offset:-4px;filter:brightness(1.08)}
 .opt0{background:var(--red)}.opt1{background:var(--blue)}.opt2{background:var(--yellow)}.opt3{background:var(--green)}
 .optBox input[type="text"]{border:0;border-radius:8px;padding:9px 10px;font-size:14px;font-weight:700;color:var(--ink)}
 .optBox{flex-wrap:wrap}.optMedia{flex-basis:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.optMedia img{width:92px;height:72px;object-fit:contain;background:#fff;border-radius:8px}.videoEditor{margin:8px 0;padding:10px;border:1px solid #cbd5e1;border-radius:10px}.videoEditor iframe{display:block;width:min(100%,480px);aspect-ratio:16/9;border:0}
@@ -420,13 +421,13 @@ function renderQuestions() {
       </div>
       <div class="optGrid">
         ${[0, 1, 2, 3].map(optIdx => `
-          <div class="optBox opt${optIdx}">
+          <div class="optBox opt${optIdx}" data-idx="${idx}" data-opt="${optIdx}">
             <input type="text" class="qOptInput" data-idx="${idx}" data-opt="${optIdx}" value="${esc(q.options[optIdx] || "")}" placeholder="選項 ${optIdx + 1}">
             <label class="optRadio" title="設為正確答案">
               <input type="radio" name="correct_${idx}" class="qCorrectRadio" data-idx="${idx}" data-opt="${optIdx}" ${Number(q.correctIndex) === optIdx ? "checked" : ""}>
               正解
             </label>
-            <div class="optMedia">${q.optionImageDriveIds?.[optIdx] ? `<img src="${esc(driveImage(q.optionImageDriveIds[optIdx]))}" alt="選項圖片"><button type="button" class="btnDanger qRemoveOptImg" data-idx="${idx}" data-opt="${optIdx}">移除圖片</button>` : ""}<label>🖼️ 選項圖片 <input type="file" class="qOptFile" data-idx="${idx}" data-opt="${optIdx}" accept="image/*"></label></div>
+            <div class="optMedia">${q.optionImageDriveIds?.[optIdx] ? `<img src="${esc(driveImage(q.optionImageDriveIds[optIdx]))}" alt="選項圖片"><button type="button" class="btnDanger qRemoveOptImg" data-idx="${idx}" data-opt="${optIdx}">移除圖片</button>` : ""}<label>🖼️ 選項圖片（可拖曳到此） <input type="file" class="qOptFile" data-idx="${idx}" data-opt="${optIdx}" accept="image/*"></label></div>
           </div>
         `).join("")}
       </div>
@@ -436,20 +437,52 @@ function renderQuestions() {
 }
 
 function bindQuestionEvents() {
-  document.querySelectorAll(".qOptFile").forEach(el => el.onchange = async () => {
-    const file = el.files?.[0], q = questions[el.dataset.idx], opt = Number(el.dataset.opt);
-    if (!file || !q || $("saveQuizBtn").disabled) return;
+  const applyOptionImageFile = async (q, opt, file, fileInputEl) => {
+    if (!file || !q) return;
+    if ($("saveQuizBtn").disabled) {
+      if (fileInputEl) fileInputEl.value = "";
+      return;
+    }
     const user = currentUser, version = editorVersion;
     try {
       requireDrive();
       if (!confirm("此教材會上傳至 Google Drive，並開放知道連結的人查看。請確認不含學生個資。是否繼續？")) return;
       $("saveQuizBtn").disabled = true;
       setStatus("editorStatus", "正在上傳教材至 Google Drive…");
-      const id = await uploadDriveImage(await compressImageFile(file),user,version);
+      const id = await uploadDriveImage(await compressImageFile(file), user, version);
       if (currentUser !== user || editorVersion !== version || !questions.includes(q)) throw new Error("編輯內容已變更，請重新選擇教材。");
       q.optionImageDriveIds[opt] = id;
       saveDraft(); renderQuestions(); setStatus("editorStatus", "教材已上傳，請儲存題庫。", "ok");
-    } catch(e) { setStatus("editorStatus", e.message, "err"); } finally { $("saveQuizBtn").disabled = false; el.value = ""; }
+    } catch (e) {
+      setStatus("editorStatus", e.message, "err");
+    } finally {
+      $("saveQuizBtn").disabled = false;
+      if (fileInputEl) fileInputEl.value = "";
+    }
+  };
+  document.querySelectorAll(".qOptFile").forEach(el => el.onchange = async () => {
+    const file = el.files?.[0], q = questions[el.dataset.idx], opt = Number(el.dataset.opt);
+    await applyOptionImageFile(q, opt, file, el);
+  });
+  document.querySelectorAll(".optBox").forEach(box => {
+    box.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      box.classList.add("dragover");
+    });
+    box.addEventListener("dragleave", e => {
+      if (!box.contains(e.relatedTarget)) box.classList.remove("dragover");
+    });
+    box.addEventListener("drop", async e => {
+      e.preventDefault();
+      e.stopPropagation();
+      box.classList.remove("dragover");
+      const q = questions[box.dataset.idx];
+      const opt = Number(box.dataset.opt);
+      const file = e.dataTransfer?.files?.[0];
+      const inputEl = box.querySelector(".qOptFile");
+      await applyOptionImageFile(q, opt, file, inputEl);
+    });
   });
   document.querySelectorAll(".qRemoveOptImg").forEach(el => el.onclick = () => {
     if ($("saveQuizBtn").disabled) return;
@@ -613,8 +646,12 @@ $("saveQuizBtn").onclick = async () => {
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
     if (!q.text.trim()) return setStatus("editorStatus", `第 ${i + 1} 題尚未輸入題目文字。`, "err");
-    if (q.options.some((opt,j) => !String(opt || "").trim() && !validDriveId(q.optionImageDriveIds?.[j]))) {
-      return setStatus("editorStatus", `第 ${i + 1} 題的四個選項都必須有文字或圖片。`, "err");
+    const hasOpt = j => Boolean(String(q.options[j] || "").trim() || validDriveId(q.optionImageDriveIds?.[j]));
+    if (![0, 1, 2, 3].some(hasOpt)) {
+      return setStatus("editorStatus", `第 ${i + 1} 題至少需要一個有文字或圖片的選項。`, "err");
+    }
+    if (!hasOpt(Number(q.correctIndex || 0))) {
+      return setStatus("editorStatus", `第 ${i + 1} 題的正解選項必須有文字或圖片。`, "err");
     }
   }
 
