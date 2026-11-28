@@ -880,31 +880,224 @@ function render() {
   }
 }
 
+// --- 模糊語音比對模組：支援疊字壓縮、音調相近/同音轉換、同義詞語意與編輯距離 ---
+const OPTION_ALIASES = [
+  ["1", "一", "壹", "衣", "醫", "依", "伊", "椅", "以", "已", "意", "易", "藝", "議", "異", "億", "義", "a", "a選項", "eh", "ei", "欸", "哎", "誒"],
+  ["2", "二", "兩", "貳", "耳", "爾", "兒", "餌", "餓", "惡", "b", "b選項", "bi", "比", "筆", "幣", "閉", "必", "畢", "避"],
+  ["3", "三", "參", "山", "衫", "刪", "散", "傘", "閃", "善", "扇", "c", "c選項", "si", "西", "吸", "希", "洗", "喜", "細", "系", "戲"],
+  ["4", "四", "肆", "事", "市", "是", "式", "試", "室", "視", "士", "世", "似", "寺", "死", "絲", "思", "司", "私", "d", "d選項", "di", "低", "滴", "底", "地", "第", "弟", "帝", "遞"]
+];
+
+const NEAR_TONE_GROUPS = [
+  "台臺", "里裡裏", "藍蘭欄籃", "黃皇凰煌", "綠律慮濾", "紅洪宏虹鴻", "白百柏伯", "黑嘿",
+  "貓毛帽矛茅", "狗夠勾溝鉤", "鳥尿", "魚余餘雨宇羽語玉", "花華化畫話", "樹書數鼠署屬術",
+  "水睡誰稅", "火活或貨獲", "大打達答搭", "小笑校孝效", "多朵躲奪", "少燒哨紹",
+  "長常場唱廠", "短段斷鍛", "高搞告膏", "矮愛艾礙", "左做坐座作", "右有又友誘幼",
+  "上尚傷賞商", "下夏嚇廈", "前錢千淺簽", "後候厚猴", "東冬懂動洞", "西希吸稀洗喜戲細系",
+  "南男難", "北倍背備被輩", "中種重鐘忠終", "國果過郭", "人仁忍認任", "天田填甜",
+  "地第弟帝遞", "山三衫刪散善", "河何和合盒", "海還孩害", "草吵炒抄", "木目母牧幕",
+  "金今斤進近盡", "土吐圖途徒", "風封豐峰蜂", "雲運允勻", "星興行形型性姓", "月越閱樂悅",
+  "日入", "年念黏", "時十石實食識史使始士市事試", "分粉份奮憤", "秒妙廟",
+  "一壹衣醫依伊椅以已意易藝議異億義", "二貳耳爾兒餌餓惡", "四肆似寺死絲思司私",
+  "五無吳吾午舞武物務誤悟霧", "六陸流留劉柳", "七期欺漆妻齊其奇騎旗起企氣器汽棄",
+  "八巴吧把爸罷霸", "九久酒救舊就究", "零林臨鄰淋靈鈴令另"
+];
+
+const NEAR_TONE_MAP = (() => {
+  const map = new Map();
+  for (const group of NEAR_TONE_GROUPS) {
+    const canonical = group[0];
+    for (const char of group) {
+      if (!map.has(char)) map.set(char, canonical);
+    }
+  }
+  return map;
+})();
+
+const SEMANTIC_SYNONYM_GROUPS = [
+  ["是", "對", "正確", "沒錯", "對的", "是的", "有", "可以", "贊成", "同意", "true", "yes", "o", "圈", "打圈", "勾", "打勾"],
+  ["否", "不是", "不對", "錯", "錯誤", "錯的", "沒有", "不可以", "反對", "不同意", "false", "no", "x", "叉", "打叉"],
+  ["台灣", "臺灣", "中華民國"],
+  ["媽媽", "母親", "媽咪", "娘"],
+  ["爸爸", "父親", "爹地", "爹"],
+  ["老師", "教師", "師長"],
+  ["學生", "同學", "學童"],
+  ["太陽", "日頭", "恆星"],
+  ["月亮", "月球", "太陰"],
+  ["快樂", "開心", "高興", "愉快", "歡喜"],
+  ["傷心", "難過", "悲傷", "不開心"],
+  ["很大", "巨大", "龐大", "超大"],
+  ["很小", "微小", "迷你", "超小"],
+  ["一樣", "相同", "相等", "一致"],
+  ["不一樣", "不同", "相異", "不相同"],
+  ["增加", "變多", "上升", "提高", "成長"],
+  ["減少", "變少", "下降", "降低", "縮減"],
+  ["前面", "前方", "前邊"],
+  ["後面", "後方", "後邊"],
+  ["左邊", "左側", "左方"],
+  ["右邊", "右側", "右方"],
+  ["上面", "上方", "上邊", "頂部"],
+  ["下面", "下方", "下邊", "底部"]
+];
+
+const SEMANTIC_GROUP_MAP = (() => {
+  const map = new Map();
+  SEMANTIC_SYNONYM_GROUPS.forEach((group, groupId) => {
+    for (const term of group) {
+      map.set(term, groupId);
+    }
+  });
+  return map;
+})();
+
 function normalizeSpokenChoice(text) {
-  return String(text ?? "").normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
+  return String(text ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\p{P}\p{Z}\s]/gu, "");
 }
 
-function recognizeChoice(text, question) {
+function collapseReduplication(text) {
+  // 壓縮疊字與常見語氣助詞（如「選項一一」->「選項一」、「紅紅的」->「紅」）
+  return text
+    .replace(/(.)\1+/gu, "$1")
+    .replace(/[的啦啊喔哦呢吧呀嘛]+$/u, "");
+}
+
+function toNearToneKey(text) {
+  let result = "";
+  for (const char of text) {
+    result += NEAR_TONE_MAP.get(char) || char;
+  }
+  return result;
+}
+
+function levenshteinSimilarity(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1]
+        ? prev
+        : Math.min(prev, dp[j], dp[j - 1]) + 1;
+      prev = temp;
+    }
+  }
+  return 1 - dp[n] / Math.max(m, n);
+}
+
+function scoreSingleTranscript(rawText, question, validIndices) {
+  const spoken = normalizeSpokenChoice(rawText);
+  if (!spoken) return { choice: -1, score: 0 };
+
+  const collapsedSpoken = collapseReduplication(spoken);
+  const toneSpoken = toNearToneKey(collapsedSpoken);
+
+  const commandRegex = /^(?:我選(?:擇)?|答案(?:是|為)?|選擇?|選項|第)/;
+  const hasCommand = commandRegex.test(spoken) || commandRegex.test(collapsedSpoken);
+  const stripCommand = str => str
+    .replace(/^(?:我選(?:擇)?|答案(?:是|為)?)/, "")
+    .replace(/^(?:選項|選擇?|第)/, "")
+    .replace(/(?:個選項|個|號)$/, "");
+
+  const shortRaw = stripCommand(spoken);
+  const shortCollapsed = stripCommand(collapsedSpoken);
+
+  // 1. 優先比對「選項一～四 / A～D」及其疊字、同音字變體
+  const aliasIndex = OPTION_ALIASES.findIndex(values =>
+    values.includes(shortRaw) || values.includes(shortCollapsed)
+  );
+  if (aliasIndex >= 0 && validIndices.includes(aliasIndex)) {
+    return { choice: aliasIndex, score: hasCommand ? 100 : 92 };
+  }
+
+  // 2. 比對選項文字（精準、疊字壓縮、同義詞語意、音調相近、包含與編輯距離）
+  const options = question.options || [];
+  let bestChoice = -1;
+  let bestScore = 0;
+  let tie = false;
+
+  for (const index of validIndices) {
+    const rawLabel = normalizeSpokenChoice(options[index]);
+    if (!rawLabel) continue;
+    const collapsedLabel = collapseReduplication(rawLabel);
+    const toneLabel = toNearToneKey(collapsedLabel);
+
+    let score = 0;
+
+    // 精準與疊字壓縮比對
+    if (rawLabel === spoken || rawLabel === shortRaw) {
+      score = 100;
+    } else if (collapsedLabel && (collapsedLabel === collapsedSpoken || collapsedLabel === shortCollapsed)) {
+      score = 95;
+    }
+
+    // 語意相同（同義詞群組比對）
+    if (score < 90) {
+      const labelSem = SEMANTIC_GROUP_MAP.get(rawLabel) ?? SEMANTIC_GROUP_MAP.get(collapsedLabel);
+      const spokenSem = SEMANTIC_GROUP_MAP.get(spoken) ?? SEMANTIC_GROUP_MAP.get(collapsedSpoken) ?? SEMANTIC_GROUP_MAP.get(shortCollapsed);
+      if (labelSem !== undefined && labelSem === spokenSem) {
+        score = Math.max(score, 90);
+      }
+    }
+
+    // 音調相近 / 同音字比對
+    if (score < 86 && toneLabel && (toneLabel === toneSpoken || toneLabel === toNearToneKey(shortCollapsed))) {
+      score = Math.max(score, 86);
+    }
+
+    // 口語完整句子包含選項關鍵字（例如「我覺得答案是光合作用」）
+    if (score < 82 && collapsedLabel.length >= 2 && (collapsedSpoken.includes(collapsedLabel) || toneSpoken.includes(toneLabel))) {
+      score = Math.max(score, 82);
+    }
+
+    // 字元編輯距離相似度（允許長詞中部分字音調誤差）
+    if (score < 80 && Math.max(collapsedLabel.length, shortCollapsed.length) >= 2) {
+      const sim = Math.max(
+        levenshteinSimilarity(collapsedLabel, shortCollapsed),
+        levenshteinSimilarity(toneLabel, toNearToneKey(shortCollapsed))
+      );
+      if (sim >= 0.65) {
+        score = Math.max(score, Math.round(sim * 80));
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestChoice = index;
+      tie = false;
+    } else if (score > 0 && score === bestScore && index !== bestChoice) {
+      tie = true;
+    }
+  }
+
+  if (tie || bestScore < 52) return { choice: -1, score: 0 };
+  return { choice: bestChoice, score: bestScore };
+}
+
+function recognizeChoice(alternatives, question) {
   const options = question.options || [];
   const validIndices = [0, 1, 2, 3].filter(i =>
     Boolean(String(options[i] || "").trim() || mediaId(question.optionImageDriveIds?.[i]))
   );
-  const spoken = normalizeSpokenChoice(text);
-  if (!spoken) return -1;
-  const aliases = [["1","一","壹","a","a選項"], ["2","二","兩","貳","b","b選項"],
-    ["3","三","參","c","c選項"], ["4","四","肆","d","d選項"]];
-  const command = /^(?:我選(?:擇)?|答案(?:是|為)?|選擇?|選項|第)/.test(spoken);
-  const short = spoken.replace(/^(?:我選(?:擇)?|答案(?:是|為)?)/, "")
-    .replace(/^(?:選項|選擇?|第)/, "").replace(/(?:個選項|個|號)$/, "");
-  const alias = aliases.findIndex(values => values.includes(short));
-  if (command && alias >= 0 && validIndices.includes(alias)) return alias;
-  const matches = [];
-  for (const index of validIndices) {
-    const label = normalizeSpokenChoice(options[index]);
-    if (label && (label === spoken || (command && label === short))) matches.push(index);
+  const candidates = Array.isArray(alternatives) ? alternatives : [alternatives];
+  let best = { choice: -1, score: 0 };
+
+  for (let i = 0; i < candidates.length; i++) {
+    const result = scoreSingleTranscript(candidates[i], question, validIndices);
+    // 順位越前面的語音候選詞權重越高
+    const weightedScore = result.score - i * 2;
+    if (result.choice >= 0 && weightedScore > best.score) {
+      best = { choice: result.choice, score: weightedScore };
+    }
   }
-  if (alias >= 0 && validIndices.includes(alias) && !matches.includes(alias)) matches.push(alias);
-  return matches.length === 1 ? matches[0] : -1;
+  return best.choice;
 }
 
 function stopVoiceRecognition() {
@@ -958,6 +1151,7 @@ function startVoiceAnswer() {
     session.lang = "zh-TW";
     session.continuous = false;
     session.interimResults = false;
+    session.maxAlternatives = 5;
     voiceRecognition = session;
     session.onstart = () => {
       if (voiceRecognition === session) $("voiceListeningAnimation").classList.remove("hidden");
@@ -966,11 +1160,13 @@ function startVoiceAnswer() {
     status.textContent = "正在聽，請說出答案…";
     session.onresult = event => {
       if (voiceRecognition !== session || !voiceAnswerAvailable(index)) return;
-      const text = event.results[event.resultIndex][0].transcript;
-      const choice = recognizeChoice(text, room.questions[index]);
+      const resultList = event.results[event.resultIndex];
+      const transcripts = Array.from({ length: resultList.length }, (_, i) => resultList[i].transcript);
+      const primaryText = transcripts[0] || "";
+      const choice = recognizeChoice(transcripts, room.questions[index]);
       stopVoiceRecognition();
       if (choice < 0) {
-        status.textContent = `聽到「${text}」，請再說一次，例如「選項一」。`;
+        status.textContent = `聽到「${primaryText}」，請再說一次，例如「選項一」。`;
         return;
       }
       status.textContent = `已辨識為選項 ${choice + 1}，正在送出…`;
